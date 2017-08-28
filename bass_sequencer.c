@@ -2,6 +2,7 @@
 #include <allegro5/allegro_font.h>
 #include <allegro5/allegro_ttf.h>
 #include <allegro5/allegro_primitives.h>
+#include "midi_lib/midi_lib.h"
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -325,6 +326,9 @@ void set_patch(int channel, int prog);
 void set_patch2(int channel, int prog);
 void set_oitava(int o);
 
+int tr_minor = 0;
+int tr_major = 0;
+
 int mouse_x,mouse_y,mouse_b;
 
 void timer_callback_1()
@@ -388,48 +392,25 @@ int init_allegro(AllegroSet *aset)
   al_register_event_source(aset->queue, al_get_mouse_event_source());
   al_register_event_source(aset->queue, al_get_timer_event_source(aset->timer));
 
-/*  aset->charbuffer = (char *)malloc(COLS*ROWS);*/
-/*  if(!aset->charbuffer) {*/
-/*    fprintf(stderr, "Error creating character buffer\n");*/
-/*    return 0;*/
-/*  }*/
-
-/*  memset( aset->charbuffer, '\0', COLS*ROWS );*/
-
   return 1;
 }
 
 
 AllegroSet aset;
 
-main()
+main(int argc, char **argv)
 {
   if(!init_allegro(&aset)) {
     fprintf(stderr, "Error: Cannot init allegro\n");
     exit(2);
   }
 
-/*    allegro_init();*/
-/*    LOCK_FUNCTION(timer_callback_1);*/
-/*    LOCK_VARIABLE(tcount);*/
-/*    if(install_timer())*/
-/*    {*/
-/*        return 1;*/
-/*    }*/
-/*    install_keyboard();*/
-/*    */
-/*    */
-/*    if(install_sound(DIGI_AUTODETECT,MIDI_MPU,NULL))*/
-/*    {*/
-/*                return 1;*/
-/*    }*/
-/*    if(set_gfx_mode(GFX_AUTODETECT,640,480,0,0))*/
-/*        return 1;*/
-/*    if(install_mouse()==-1)*/
-/*    {*/
-/*        return 1;*/
-/*    }*/
-/*    install_int_ex(timer_callback_1,BPS_TO_TIMER(40));*/
+  if( argc > 1) {
+    midi_port_install(argv[1]);
+  } else {
+    midi_port_install(NULL);
+  }
+
     stuff();
     return 0;
 }
@@ -492,7 +473,13 @@ void player()
                 last_note_on=-1;
         }
         playing_cursor(NC_FWD);
-        last_note_on=CURNOTE+base+note_ofs;
+        int temp = CURNOTE;
+        if( temp%12 == 4 && tr_minor ) {
+          temp--;
+        } else if( temp%12 == 3 && tr_major ) {
+          temp++;
+        }
+        last_note_on=temp+base+note_ofs;
         note_on(0,last_note_on,255);
         
     }
@@ -635,6 +622,42 @@ void draw_staff(STAFF *staff)
 /*        unscare_mouse();*/
 }
 
+void chord_detect()
+{
+  int i;
+  int n=0;
+  int treta[4];
+  tr_minor = 0;
+  tr_major = 0;
+  for(i=0;i<N_KEYS;i++) {
+    if( n < 4 && note_set[i] ) {
+      treta[n]=i;
+      n++;
+    }
+  }
+
+  int bass_note = treta[0];
+  for(i=0;i<n;i++) {
+    treta[i] -= bass_note;
+    printf("T [%u] %d\n", i, treta[i]);
+  }
+
+  if( n == 1 ) {
+    printf("Major\n");
+  }
+  else if( n >= 2 ) {
+    printf("Diff %d\n", treta[1] - treta[0]);
+    if( treta[1] - treta[0] == 4 ) {
+      tr_major = 1;
+      printf("Major\n");
+    }
+    else if( treta[1] - treta[0] == 3 ) {
+      tr_minor = 1;
+      printf("Minor\n");
+    }
+  }
+}
+
 void edit_loop()
 {
     ALLEGRO_EVENT event;
@@ -703,6 +726,7 @@ void edit_loop()
                     note_set[i]=1;
                     //      note_on(0,base+i,255);
                           note_ofs=i;
+                    chord_detect();
                     draw_key(i,1);
                   }
 
@@ -740,60 +764,6 @@ void edit_loop()
         tcount++;
         player();
       }
-/*       if(keypressed())*/
-/*       {*/
-/*                tecla=readkey();*/
-/*                switch(tecla>>8)*/
-/*                {*/
-/*                        case KEY_F1:staffdup(1);break;*/
-/*                        case KEY_F2:staffdup(4);break;*/
-/*                        case KEY_F3:staffdup(8);break;*/
-/*                        case KEY_F4:staffdup(16);break;*/
-/*                        case KEY_F5:staffdup(32);break;*/
-/*                        case KEY_UP:if(patch<127) set_patch2(0,++patch);break;*/
-/*                        case KEY_DOWN:if(patch>0) set_patch2(0,--patch);break;*/
-/*                        case KEY_PGUP:settempo(tempo+1);break;*/
-/*                        case KEY_PGDN:settempo(tempo-1);break;*/
-/*                        case KEY_LEFT:set_oitava(oitava-1);break;*/
-/*                        case KEY_RIGHT:set_oitava(oitava+1);break;*/
-/*                        case KEY_BACKSPACE:set_player(STOP);break;*/
-/*                        case KEY_ENTER:set_player(PLAY);break;*/
-/*                        case KEY_SPACE:set_player(PLAY_PAUSE);break;*/
-/*                }*/
-/*                switch(tecla&0xFF)*/
-/*                {*/
-/*                        case 27:power_off=1;break;*/
-/*                        case '1':settempo(20);break;*/
-/*                        case '2':settempo(40);break;*/
-/*                        case '3':settempo(60);break;*/
-/*                        case '4':settempo(80);break;*/
-/*                        case '5':settempo(100);break;*/
-/*                        case '6':settempo(120);break;*/
-/*                        case '7':settempo(150);break;*/
-/*                        case '8':settempo(180);break;*/
-/*                        case '9':settempo(220);break;*/
-/*                        case '0':settempo(250);break;*/
-/*                }*/
-/*       }*/
-/*        base=oitava*12;*/
-/*       for(i=0;i<N_KEYS;i++)*/
-/*       {*/
-/*                if(key[note_key[i]] && !note_set[i])*/
-/*                {*/
-/*                 //       note_set[i]=1;*/
-/*                  //      note_on(0,base+i,255);*/
-/*                        note_ofs=i;*/
-/*                    //    draw_key(i,1);*/
-/*                }*/
-
-/*                if(!key[note_key[i]] && note_set[i])*/
-/*                {*/
-/*                      //  note_set[i]=0;*/
-/*                       // note_off(0,base+i);*/
-/*                       // draw_key(i,0);*/
-/*                }*/
-/*       }*/
-/*       */
       al_flip_display();
     }
 }
@@ -810,13 +780,12 @@ void set_patch2(int channel, int prog)
 
 void settempo(int v)
 {
-    if(v<20||v>1200)
-        return;
-    tempo=v;
-/*    scare_mouse();*/
-    al_draw_filled_rectangle(20,340,133,350,CL0);
-    al_draw_textf(aset.font,CL15,20,340,0,"Tempo: %3u BPM",tempo);
-/*    unscare_mouse();*/
+  if(v<20||v>1200)
+      return;
+  tempo=v;
+
+  al_draw_filled_rectangle(20,340,133,350,CL0);
+  al_draw_textf(aset.font,CL15,20,340,0,"Tempo: %3u BPM",tempo);
 }
 
 void set_patch(int channel, int prog)
@@ -826,7 +795,7 @@ void set_patch(int channel, int prog)
    msg[0] = 0xC0+channel;
    msg[1] = prog;
 
-/*   midi_out(msg, 2);*/
+//   midi_out(msg, 2);
 }
 
 void set_oitava(int o)
@@ -883,7 +852,7 @@ void set_pan(int channel, int pan)
    msg[1] = 10;
    msg[2] = pan / 2;
 
-/*   midi_out(msg, 3);*/
+   midi_out(msg, 3);
 }
 
 
@@ -896,7 +865,7 @@ void note_on(int channel, int pitch, int vel)
    msg[1] = pitch;
    msg[2] = vel / 2;
 
-/*   midi_out(msg, 3);*/
+   midi_out(msg, 3);
 }
 
 
@@ -909,7 +878,7 @@ void note_off(int channel, int pitch)
    msg[1] = pitch;
    msg[2] = 0;
 
-/*   midi_out(msg, 3);*/
+   midi_out(msg, 3);
 }
 
 void all_notes_off(int channel)
@@ -920,7 +889,7 @@ void all_notes_off(int channel)
     msg[1]=123;
     msg[2]=0;
 
-/*    midi_out(msg,3);*/
+    midi_out(msg,3);
 }
 
 void draw_key(int n, char st)
