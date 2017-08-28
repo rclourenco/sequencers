@@ -249,6 +249,7 @@ typedef struct {
   ALLEGRO_EVENT_QUEUE *queue;
   ALLEGRO_EVENT_SOURCE incoming;
   ALLEGRO_MUTEX *mutex;
+  ALLEGRO_TIMER *timer;
   int fw;
   int fh;
   int cx;
@@ -324,9 +325,11 @@ void set_patch(int channel, int prog);
 void set_patch2(int channel, int prog);
 void set_oitava(int o);
 
+int mouse_x,mouse_y,mouse_b;
+
 void timer_callback_1()
 {
-    tcount++;
+/*    tcount++;*/
 }
 //END_OF_FUNCTION(timer_callback_1)
 
@@ -350,6 +353,12 @@ int init_allegro(AllegroSet *aset)
      return 0;
   }
 
+
+  aset->timer = al_create_timer(ALLEGRO_BPS_TO_SECS(40.0));
+  if(!aset->timer) {
+    fprintf(stderr, "Cannot create timer...\n");
+    return 0;
+  }
 /*  aset->scroll = al_create_bitmap(SCRW, SCRH);  */
 
 /*  aset->cx=0;*/
@@ -376,6 +385,8 @@ int init_allegro(AllegroSet *aset)
   al_init_user_event_source(&aset->incoming);
   al_register_event_source(aset->queue, &aset->incoming);
   al_register_event_source(aset->queue, al_get_keyboard_event_source());
+  al_register_event_source(aset->queue, al_get_mouse_event_source());
+  al_register_event_source(aset->queue, al_get_timer_event_source(aset->timer));
 
 /*  aset->charbuffer = (char *)malloc(COLS*ROWS);*/
 /*  if(!aset->charbuffer) {*/
@@ -528,40 +539,40 @@ void staff_note_off(int nx, int ny)
 }
 void process_table_click()
 {
-/*        char msg[200]="...";*/
-/*        int nx=-1,ny=-1;*/
+        char msg[200]="...";
+        int nx=-1,ny=-1;
 
-/*        test_mouse_staff(&nx,&ny);*/
-/*        */
-/*        sprintf(msg,"Note X: %3d  Note Y: %3d",nx,ny);*/
-/*        if(mouse_b&0x1)*/
-/*        {*/
-/*            staff_note_on(nx,ny);*/
-/*            //textout(screen,font,msg,20,460,40);*/
-/*        }*/
-/*        if(mouse_b&0x2)*/
-/*        {*/
-/*               staff_note_off(nx,ny);*/
-/*        }*/
+        test_mouse_staff(&nx,&ny);
+        
+        sprintf(msg,"Note X: %3d  Note Y: %3d",nx,ny);
+        if(mouse_b&0x1)
+        {
+            staff_note_on(nx,ny);
+            //textout(screen,font,msg,20,460,40);
+        }
+        if(mouse_b&0x2)
+        {
+               staff_note_off(nx,ny);
+        }
 }
 
 void test_mouse_staff(int *nx, int *ny)
 {
-/*    int max_y,max_x;*/
-/*    int mx=mouse_x,my=mouse_y;*/
-/*    */
-/*    max_x=GRID_X+NPS*GRID_W;*/
-/*    max_y=GRID_Y+NNV*GRID_H;*/
-/*    if(mx>=GRID_X&&mx<=max_x&&my>=GRID_Y&&my<=max_y)*/
-/*    {*/
-/*                *nx=(mx-GRID_X)/GRID_W;*/
-/*                *ny=NNV-(my-GRID_Y)/GRID_H-1;*/
-/*    }*/
-/*    else*/
-/*    {*/
-/*                *nx=-1;*/
-/*                *ny=-1;*/
-/*    }*/
+    int max_y,max_x;
+    int mx=mouse_x,my=mouse_y;
+    
+    max_x=GRID_X+NPS*GRID_W;
+    max_y=GRID_Y+NNV*GRID_H;
+    if(mx>=GRID_X&&mx<=max_x&&my>=GRID_Y&&my<=max_y)
+    {
+                *nx=(mx-GRID_X)/GRID_W;
+                *ny=NNV-(my-GRID_Y)/GRID_H-1;
+    }
+    else
+    {
+                *nx=-1;
+                *ny=-1;
+    }
     
 }
 
@@ -642,6 +653,7 @@ void edit_loop()
     set_player(STOP);
 
     al_flip_display();
+    al_start_timer(aset.timer);
     while(!power_off)
     {
       al_wait_for_event(aset.queue, &event);
@@ -708,8 +720,26 @@ void edit_loop()
          }
       }
 
-/*       process_table_click();*/
-/*       player();       */
+      if( event.type == ALLEGRO_EVENT_MOUSE_AXES ) {
+         mouse_x = event.mouse.x;
+         mouse_y = event.mouse.y;
+      }
+
+      if( event.type == ALLEGRO_EVENT_MOUSE_BUTTON_DOWN ) {
+          int b = event.mouse.button-1;
+          mouse_b |= 1<<b;
+          process_table_click();
+      }
+
+      if( event.type == ALLEGRO_EVENT_MOUSE_BUTTON_UP ) {
+          int b = event.mouse.button-1;
+          mouse_b &= ~(1<<b);
+      }
+
+      if( event.type == ALLEGRO_EVENT_TIMER ) {
+        tcount++;
+        player();
+      }
 /*       if(keypressed())*/
 /*       {*/
 /*                tecla=readkey();*/
