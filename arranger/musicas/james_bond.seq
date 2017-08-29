@@ -1,0 +1,50 @@
+#Seq Format
+
+Name: James Bond
+
+Sequences: 1
+States: 1
+
+State: {
+	Sequence: 0
+	Next: 0
+}
+
+
+Group: {
+	Bpm:   145
+	Div:   2
+	Pulse: 4
+	Frag:  8
+	Len:   16
+
+	Seq: {
+		Channel: 0
+		Base:   A
+		Octave: 3
+		Vel:    100
+		Notes:  E_ E  E._ E.  E_ E  E._ E.
+		Notes:  E_ E  E._ E.  E_ E  E._ E.
+	}
+
+	Seq: {
+		Channel: 1
+		Base:   A
+		Octave: 4
+		Vel:    100
+		Notes:  E._ E._ E._ E.  E._ E._ E._ E.
+		Notes:  E._ E._ E._ E.  E._ E._ E._ E.
+	}
+
+	Seq: {
+		Channel: 1
+		Base:   A
+		Octave: 4
+		Vel:    100
+		Notes:  B_ B_ B_ B      C._ C._ C._ C.
+		Notes:  C#._ C#._ C#._ C#.  C._ C._ C._ C.
+	}
+
+}
+
+

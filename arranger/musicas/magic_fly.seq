@@ -1,0 +1,155 @@
+#Seq Format
+
+Name: Magic Fly
+
+Sequences: 3
+States: 4
+
+State: {
+	Sequence: 0
+	Next: 1
+}
+
+State: {
+	Sequence: 1
+	Next: 2
+}
+
+State: {
+	Sequence: 1
+	Next: 3
+}
+
+State: {
+	Sequence: 2
+	Next: 1
+}
+
+
+Group: {
+	Bpm:   120
+	Div:   2
+	Pulse: 4
+	Frag:  8
+	Len:   32
+
+	Seq: {
+		Channel: 0
+		Base:   A
+		Octave: 3
+		Vel:    100
+		Notes:  A A. A A.  A A.  A A.
+		Notes:  A A. A A.  A A.  A A.
+		Notes:  A A. A A.  A A.  A A.
+		Notes:  A A. A A.  A A.  A A.
+	}
+
+}
+
+Group: {
+	Bpm:   120
+	Div:   2
+	Pulse: 4
+	Frag:  8
+	Len:   32
+
+	Seq: {
+		Channel: 0
+		Base:   A
+		Octave: 3
+		Vel:    100
+		Notes:  A A. A A.  A A. A A. A A. A A.  A A. A A.
+		Notes:  E E. E E.  E E. E E. E E. E E.  E E. E E.
+
+	}
+
+	Seq: {
+		Channel: 2
+		Base:   A
+		Octave: 5
+		Vel:    100
+		Notes:  A_ A_ A_ A_  A_ A_ A_ A_  A_ A_ A_ A_  A_ A_ A_ A
+		Notes:  E_ E_ E_ E_  E_ E_ E_ E_  E_ E_ E_ E_  E_ E_ E_ E
+
+	}
+
+	Seq: {
+		Channel: 2
+		Base:   A
+		Octave: 5
+		Vel:    100
+		Notes:  C_ C_ C_ C_  C_ C_ C_ C_  C_ C_ C_ C_  C_ C_ C_ C
+		Notes:  G_ G_ G_ G_  G_ G_ G_ G_  G_ G_ G_ G_  G_ G_ G_ G
+
+	}
+
+	Seq: {
+		Channel: 2
+		Base:   A
+		Octave: 5
+		Vel:    100
+		Notes:  E._ E._ E._ E._  E._ E._ E._ E._  E._ E._ E._ E._  E._ E._ E._ E.
+		Notes:  B_ B_ B_ B_  B_ B_ B_ B_  B_ B_ B_ B_  B_ B_ B_ B
+
+	}
+
+}
+
+
+Group: {
+	Bpm:   120
+	Div:   2
+	Pulse: 4
+	Frag:  8
+	Len:   64
+
+	Seq: {
+		Channel: 0
+		Base:   A
+		Octave: 3
+		Vel:    100
+		Notes:  D D. D D.  D D. D D. E E. E E.  E E. E E.
+		Notes:  D D. D D.  D D. D D. E E. E E.  E E. E E.
+		Notes:  D D. D D.  D D. D D. D D. D D.  D D. D D.
+		Notes:  E E. E E.  E E. E E. E E. E E.  E E. E E.
+
+	}
+
+	Seq: {
+		Channel: 2
+		Base:   A
+		Octave: 5
+		Vel:    100
+		Notes:  D_ D_ D_ D_  D_ D_ D_ D   E_ E_ E_ E_  E_ E_ E_ E
+		Notes:  D_ D_ D_ D_  D_ D_ D_ D   E_ E_ E_ E_  E_ E_ E_ E
+		Notes:  D_ D_ D_ D_  D_ D_ D_ D_  D_ D_ D_ D_  D_ D_ D_ D
+		Notes:  E_ E_ E_ E_  E_ E_ E_ E_  E_ E_ E_ E_  E_ E_ E_ E
+
+	}
+
+	Seq: {
+		Channel: 2
+		Base:   A
+		Octave: 5
+		Vel:    100
+		Notes:  F#_ F#_ F#_ F#_  F#_ F#_ F#_ F#_  G_ G_ G_ G_  G_ G_ G_ G
+		Notes:  F#_ F#_ F#_ F#_  F#_ F#_ F#_ F#  G_ G_ G_ G_  G_ G_ G_ G
+		Notes:  F#_ F#_ F#_ F#_  F#_ F#_ F#_ F#_  F#_ F#_ F#_ F#_  F#_ F#_ F#_ F#
+		Notes:  G_ G_ G_ G_  G_ G_ G_ G_  G_ G_ G_ G_  G_ G_ G_ G
+
+	}
+
+	Seq: {
+		Channel: 2
+		Base:   A
+		Octave: 5
+		Vel:    100
+		Notes:  A_ A_ A_ A_  A_ A_ A_ A  B_ B_ B_ B_  B_ B_ B_ B
+		Notes:  A_ A_ A_ A_  A_ A_ A_ A  B_ B_ B_ B_  B_ B_ B_ B
+		Notes:  A_ A_ A_ A_  A_ A_ A_ A_  A_ A_ A_ A_  A_ A_ A_ A
+		Notes:  B_ B_ B_ B_  B_ B_ B_ B_  B_ B_ B_ B_  B_ B_ B_ B
+
+	}
+
+}
+

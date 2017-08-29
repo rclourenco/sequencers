@@ -1,0 +1,62 @@
+#Seq Format
+
+Name: The Savage
+
+Intro: first
+Outro: last
+Enter: 2
+
+Group: {
+	Bpm:   190
+	Div:   4
+	Pulse: 4
+	Frag:  8
+	Len: 8
+
+	Seq: {
+		Channel: 0
+		Base:   A
+		Octave: 4
+		Vel:    100
+		Notes:  A_ A_ A_ A  G_ G  E_ E
+#		Keys:   E F G A A#
+	}
+	Seq: {
+		Channel: 1
+		Base:   A
+		Octave: 5
+		Vel:    100
+		Notes:  A A A_ A  A A A_ A
+		Keys:   E F G A A#
+	}
+	Seq: {
+		Channel: 1
+		Base:   A
+		Octave: 5
+		Vel:    100
+		Notes:  C#. C#. C#._ C#. C#. C#. C#._ C#.
+		Keys:   E F G A A#
+	}
+	Seq: {
+		Channel: 1
+		Base:   A
+		Octave: 5
+		Vel:    100
+		Notes:  E. E. E._ E. E. E. E._ E.
+		Keys:   E F G A A#
+	}
+
+	Chords: {
+		Channel: 2
+		Octave: 6
+		Rhythm: x_ x x x
+		Keys: {
+			A:  A C.# E.
+			A#: A# D. F.
+			E:  E A B
+			F:  F A#  C. Eb.
+			G:  G B D.
+		}
+		Info: aaaaa
+	}
+}

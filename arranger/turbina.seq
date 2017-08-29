@@ -1,0 +1,53 @@
+#Seq Format
+
+Name: Turbina
+
+Intro: first
+Outro: last
+Enter: 2
+
+Group: {
+	Bpm:   120
+	Div:   3
+	Pulse: 4
+	Frag:  9
+	Len:   9
+
+	Seq: {
+		Channel: 0
+		Base:   A
+		Octave: 3
+		Vel:    100
+		Notes:  A A C. A G B G F# E
+	}
+
+}
+
+Group: {
+	Bpm:   120
+	Div:   3
+	Pulse: 4
+	Frag:  9
+	Len:   36
+
+	Seq: {
+		Channel: 0
+		Base:   A
+		Octave: 3
+		Vel:    100
+		Notes:  A A C. A G B G F# E
+		Notes:  A A C. A G B G F# E
+		Notes:  A A C. A G B G F# E
+		Notes:  A A C. A G B G F# E
+	}
+
+	Seq: {
+		Channel: 1
+		Base:   A
+		Octave: 5
+		Vel:    100
+		Notes:  E. C. A  E. C. A  E. C. A  G. D. A  G. D. A  G. D. A
+		Notes:  E. C. A  E. C. A  E. C. A  A. E. A  A. E. A  A. E. A
+	}
+
+}

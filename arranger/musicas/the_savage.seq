@@ -1,0 +1,336 @@
+#Seq Format
+
+Name: The Savage
+Sequences: 4
+States: 6
+
+#intro
+State: {
+	Sequence: 0
+	Next: 1
+}
+
+#A 1
+State: {
+	Sequence: 1
+	Next: 2
+}
+
+#A 2
+State: {
+	Sequence: 1
+	Next: 3
+	Triggers: D=5
+}
+
+#B 1
+State: {
+	Sequence: 2
+	Next: 4
+}
+
+#B 1
+State: {
+	Sequence: 2
+	Next: 1
+}
+
+#Final
+State: {
+	Sequence: 3
+	Next: -2
+}
+
+
+#seq 0
+Group: {
+	Bpm:   160
+	Div:   4
+	Pulse: 4
+	Frag:  16
+	Len:   64
+
+	Seq: {
+		Channel: 0
+		Base:   A
+		Octave: 3
+		Vel:    100
+		Notes:  A_ A_ A_ A  G_ G  E_ E  A_ A_ A_ A  G_ G  E_ E  
+		Notes:  A_ A_ A_ A  G_ G  E_ E  A_ A_ A_ A  G_ G  E_ E  
+		Notes:  A_ A_ A_ A  G_ G  E_ E  A_ A_ A_ A  G_ G  E_ E  
+		Notes:  A_ A_ A_ A  G_ G  E_ E  A_ A_ A_ A  G_ G  E_ E  
+	}
+
+	Seq: {
+		Channel: 9
+		Base:   C
+		Octave: 3
+		Vel:    100
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+	}
+
+
+}
+
+#seq1
+Group: {
+	Bpm:   160
+	Div:   4
+	Pulse: 4
+	Frag:  16
+	Len: 128
+
+	Seq: {
+		Channel: 0
+		Base:   A
+		Octave: 3
+		Vel:    100
+		Notes:  A_ A_ A_ A  G_ G  E_ E    A_ A_ A_ A  G_ G  E_ E    A_ A_ A_ A  G_ G  E_ E    A_ A_ A_ A  G_ G  E_ E
+		Notes:  A_ A_ A_ A  G_ G  E_ E    A_ A_ A_ A  G_ G  E_ E    A_ A_ A_ A  G_ G  E_ E    A_ A_ A_ A  G_ G  E_ E
+		Notes:  A#_ A#_ A#_ A#  G#_ G#  E#_ E#    A#_ A#_ A#_ A#  G#_ G#  E#_ E#    A#_ A#_ A#_ A#  G#_ G#  E#_ E#    A#_ A#_ A#_ A#  G#_ G#  E#_ E#
+		Notes:  A_ A_ A_ A  G_ G  E_ E    A_ A_ A_ A  G_ G  E_ E    A_ A_ A_ A  G_ G  E_ E    A_ A_ A_ A  G_ G  E_ E
+	}
+
+	Seq: {
+		Channel: 1
+		Base:   A
+		Octave: 4
+		Vel:    100
+		Notes:  A A A_ A   A A A_ A    A A A_ A   A A A_ A  A A A_ A   A A A_ A   A A A_ A   A A A_ A
+		Notes:  A A A_ A   A A A_ A    A A A_ A   A A A_ A  A A A_ A   A A A_ A   A A A_ A   A A A_ A
+		Notes:  A# A# A#_ A#   A# A# A#_ A#    A# A# A#_ A#   A# A# A#_ A#  A# A# A#_ A#   A# A# A#_ A#   A# A# A#_ A#   A# A# A#_ A#
+		Notes:  A A A_ A   A A A_ A    A A A_ A   A A A_ A  A A A_ A   A A A_ A   A A A_ A   A A A_ A
+	}
+
+
+	Seq: {
+		Channel: 1
+		Base:   A
+		Octave: 4
+		Vel:    100
+		Notes:  C.# C.# C.#_ C.#    C.# C.# C.#_ C.#   C.# C.# C.#_ C.#   C.# C.# C.#_ C.#
+		Notes:  C.# C.# C.#_ C.#    C.# C.# C.#_ C.#   C.# C.# C.#_ C.#   C.# C.# C.#_ C.#
+
+		Notes:  C.# C.# C.#_ C.#    C.# C.# C.#_ C.#   C.# C.# C.#_ C.#   C.# C.# C.#_ C.#
+		Notes:  C.# C.# C.#_ C.#    C.# C.# C.#_ C.#   C.# C.# C.#_ C.#   C.# C.# C.#_ C.#
+
+		Notes:  D. D. D._ D.  D. D. D._ D.  D. D. D._ D.  D. D. D._ D.
+		Notes:  D. D. D._ D.  D. D. D._ D.  D. D. D._ D.  D. D. D._ D.
+
+		Notes:  C.# C.# C.#_ C.#    C.# C.# C.#_ C.#   C.# C.# C.#_ C.#   C.# C.# C.#_ C.#
+		Notes:  C.# C.# C.#_ C.#    C.# C.# C.#_ C.#   C.# C.# C.#_ C.#   C.# C.# C.#_ C.#
+
+	}
+
+	Seq: {
+		Channel: 1
+		Base:   A
+		Octave: 4
+		Vel:    100
+		Notes:  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.
+		Notes:  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.
+		Notes:  F. F. F._ F.  F. F. F._ F.  F. F. F._ F.  F. F. F._ F.  F. F. F._ F.  F. F. F._ F.  F. F. F._ F.  F. F. F._ F.
+		Notes:  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.
+	}
+
+	Seq: {
+		Channel: 9
+		Base:   C
+		Octave: 3
+		Vel:    100
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+	}
+
+
+}
+
+#seq2
+Group: {
+	Bpm:   160
+	Div:   4
+	Pulse: 4
+	Frag:  16
+	Len: 128
+
+	Seq: {
+		Channel: 0
+		Base:   A
+		Octave: 3
+		Vel:    100
+		Notes:  F_ F_ F_ F  Eb_ Eb C_ C   F_ F_ F_ F  Eb_ Eb C_ C   F_ F_ F_ F  Eb_ Eb C_ C   F_ F_ F_ F  Eb_ Eb  C_ C
+		Notes:  A_ A_ A_ A  G_ G  E_ E    A_ A_ A_ A  G_ G  E_ E    A_ A_ A_ A  G_ G  E_ E    A_ A_ A_ A  G_ G  E_ E
+		Notes:  G_ G_ G_ G  F_ F  D_ D    G_ G_ G_ G  F_ F  D_ D    G_ G_ G_ G  F_ F  D_ D    G_ G_ G_ G  F_ F  D_ D
+		Notes:  E_ E_ E_ E  D_ D .B_ .B   E_ E_ E_ E  D_ D .B_ .B   E_ E_ E_ E  D_ D .B_ .B   E_ E_ E_ E  D_ D .B_ .B
+	}
+
+	Seq: {
+		Channel: 1
+		Base:   A
+		Octave: 4
+		Vel:    100
+		Notes:  F F F_ F  F F F_ F  F F F_ F  F F F_ F
+		Notes:  F F F_ F  F F F_ F  F F F_ F  F F F_ F
+
+		Notes:  A A A_ A  A A A_ A  A A A_ A   A A A_ A  
+		Notes:  A A A_ A  A A A_ A  A A A_ A   A A A_ A  
+
+		Notes:  G G G_ G  G G G_ G  G G G_ G   G G G_ G  
+		Notes:  G G G_ G  G G G_ G  G G G_ G   G G G_ G  
+
+		Notes:  E E E E  E E E_ E  E E E_ E   E E E_ E  
+		Notes:  E E E E  E E E_ E  E E E_ E   E E E_ E  
+
+	}
+
+	Seq: {
+		Channel: 1
+		Base:   A
+		Octave: 4
+		Vel:    100
+		Notes:  A A A_ A  A A A_ A  A A A_ A  A A A_ A
+		Notes:  A A A_ A  A A A_ A  A A A_ A  A A A_ A
+
+		Notes:  C# C# C#_ C#  C# C# C#_ C#  C# C# C#_ C#   C# C# C#_ C#  
+		Notes:  C# C# C#_ C#  C# C# C#_ C#  C# C# C#_ C#   C# C# C#_ C#  
+
+		Notes:  B B B_ B  B B B_ B  B B B_ B   B B B_ B  
+		Notes:  B B B_ B  B B B_ B  B B B_ B   B B B_ B  
+
+		Notes:  G# G# G#_ G#  G# G# G#_ G#  G# G# G#_ G#  G# G# G#_ G#
+		Notes:  G# G# G#_ G#  G# G# G#_ G#  G# G# G#_ G#  G# G# G#_ G#
+
+	}
+
+	Seq: {
+		Channel: 1
+		Base:   A
+		Octave: 4
+		Vel:    100
+		Notes:  C. C. C._ C.  C. C. C._ C.  C. C. C._ C.  C. C. C._ C.
+		Notes:  C. C. C._ C.  C. C. C._ C.  C. C. C._ C.  C. C. C._ C.
+
+		Notes:  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.
+		Notes:  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.
+
+		Notes:  D. D. D._ D.  D. D. D._ D.  D. D. D._ D.  D. D. D._ D.
+		Notes:  D. D. D._ D.  D. D. D._ D.  D. D. D._ D.  D. D. D._ D.
+
+		Notes:  B B B_ B  B B B_ B  B B B_ B  B B B_ B
+		Notes:  B B B_ B  B B B_ B  B B B_ B  B B B_ B
+
+	}
+
+	Seq: {
+		Channel: 9
+		Base:   C
+		Octave: 3
+		Vel:    100
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+	}
+
+}
+
+
+#seq3
+Group: {
+	Bpm:   160
+	Div:   4
+	Pulse: 4
+	Frag:  16
+	Len: 128
+
+	Seq: {
+		Channel: 0
+		Base:   A
+		Octave: 3
+		Vel:    100
+		Notes:  A#_ A#_ A#_ A#  G#_ G#  E#_ E#    A#_ A#_ A#_ A#  G#_ G#  E#_ E#    A#_ A#_ A#_ A#  G#_ G#  E#_ E#    A#_ A#_ A#_ A#  G#_ G#  E#_ E#
+		Notes:  A_ A_ A_ A  G_ G  E_ E    A_ A_ A_ A  G_ G  E_ E    A_ A_ A_ A  G_ G  E_ E    A_ A_ A_ A  G_ G  E_ E
+		Notes:  A#_ A#_ A#_ A#  G#_ G#  E#_ E#    A#_ A#_ A#_ A#  G#_ G#  E#_ E#    A#_ A#_ A#_ A#  G#_ G#  E#_ E#    A#_ A#_ A#_ A#  G#_ G#  E#_ E#
+		Notes:  E_ E_ E_ E  F_ F  F_ F  E_ E_ E_ E  F_ F  F_ F 
+		Notes:  E_ E_ E_ E_   E_ E_ E_ E_    E_ E_ E_ E_   E_ E_ E_ E
+	}
+
+	Seq: {
+		Channel: 1
+		Base:   A
+		Octave: 4
+		Vel:    100
+		Notes:  A# A# A#_ A#   A# A# A#_ A#    A# A# A#_ A#   A# A# A#_ A#  A# A# A#_ A#   A# A# A#_ A#   A# A# A#_ A#   A# A# A#_ A#
+		Notes:  A A A_ A   A A A_ A    A A A_ A   A A A_ A  A A A_ A   A A A_ A   A A A_ A   A A A_ A
+		Notes:  A# A# A#_ A#   A# A# A#_ A#    A# A# A#_ A#   A# A# A#_ A#  A# A# A#_ A#   A# A# A#_ A#   A# A# A#_ A#   A# A# A#_ A#
+		Notes:  A_ A_ A_ A  A#_ A#  A#_ A#  A_ A_ A_ A  A#_ A#  A#_ A#  
+		Notes:  A_ A_ A_ A_   A_ A_ A_ A_   A_ A_ A_ A_   A_ A_ A_ A
+
+	}
+
+
+	Seq: {
+		Channel: 1
+		Base:   A
+		Octave: 4
+		Vel:    100
+
+		Notes:  D. D. D._ D.  D. D. D._ D.  D. D. D._ D.  D. D. D._ D.
+		Notes:  D. D. D._ D.  D. D. D._ D.  D. D. D._ D.  D. D. D._ D.
+
+		Notes:  C.# C.# C.#_ C.#    C.# C.# C.#_ C.#   C.# C.# C.#_ C.#   C.# C.# C.#_ C.#
+		Notes:  C.# C.# C.#_ C.#    C.# C.# C.#_ C.#   C.# C.# C.#_ C.#   C.# C.# C.#_ C.#
+
+		Notes:  D. D. D._ D.  D. D. D._ D.  D. D. D._ D.  D. D. D._ D.
+		Notes:  D. D. D._ D.  D. D. D._ D.  D. D. D._ D.  D. D. D._ D.
+
+		Notes:  C.#_ C.#_ C.#_ C.#  D._ D.  D._ D.  C.#_ C.#_ C.#_ C.#  D._ D.  D._ D.  
+		Notes:  C.#_ C.#_ C.#_ C.#_   C.#_ C.#_ C.#_ C.#_  C.#_ C.#_ C.#_ C.#_   C.#_ C.#_ C.#_ C.#
+	}
+
+	Seq: {
+		Channel: 1
+		Base:   A
+		Octave: 4
+		Vel:    100
+		Notes:  F. F. F._ F.  F. F. F._ F.  F. F. F._ F.  F. F. F._ F.  F. F. F._ F.  F. F. F._ F.  F. F. F._ F.  F. F. F._ F.
+		Notes:  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.  E. E. E._ E.
+		Notes:  F. F. F._ F.  F. F. F._ F.  F. F. F._ F.  F. F. F._ F.  F. F. F._ F.  F. F. F._ F.  F. F. F._ F.  F. F. F._ F.
+		Notes:  E._ E._ E._ E.  F._ F.  F._ F.  E._ E._ E._ E.  F._ F.  F._ F.   
+		Notes:  E._ E._ E._ E._   E._ E._ E._ E._   E._ E._ E._ E._   E._ E._ E._ E.
+	}
+
+	Seq: {
+		Channel: 9
+		Base:   C
+		Octave: 3
+		Vel:    100
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+		Notes:  C_ C_ C_ C  E_ E_ E_ E  C_ C  C_ C  E_ E_ E_ E
+	}
+
+
+}
+
