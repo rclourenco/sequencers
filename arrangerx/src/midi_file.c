@@ -27,6 +27,53 @@ typedef struct {
 } MidiHeader;
 
 
+typedef enum {meNoteOn, meNoteOff, meAny, meSysex, meMeta} MidiEventType;
+
+typedef struct _MidiEventNode {
+  struct _MidiEventNode *next;
+  size_t len;
+  MidiEventType type;
+}MidiEventNode;
+
+typedef struct {
+  enum {StatusDelta, StatusCmd, StatusData, StatusSysex, StatusMeta, StatusError, StatusSysexData, StatusMetaData, StatusMetaLen} status;
+  unsigned char ch; /*current input*/
+  unsigned char cmd;
+  unsigned long delta;
+  unsigned long orgdatalen;
+  unsigned long datalen;
+  unsigned long eolen;
+  unsigned long elen;
+  unsigned char metatype;
+} TrackParser;
+
+const char *metalabel(unsigned char metatype) {
+  const char *st = "Meta Unknown";
+  static char buffer[20];
+  switch(metatype)
+  {
+    case 0: st = "Sequence Number"; break;
+    case 1: st = "Text Event"; break;
+    case 2: st = "Copyright Notice"; break;
+    case 3: st = "Sequence/Track Name"; break;
+    case 4: st = "Instrument Name"; break;
+    case 5: st = "Lyric"; break;
+    case 6: st = "Marker"; break;
+    case 7: st = "Cue Point"; break;
+    case 0x20: st = "Midi Channel Prefix"; break;
+    case 0x2F: st = "End of Track"; break;
+    case 0x51: st = "Set Tempo"; break;
+    case 0x54: st = "SMTPE Offset"; break;
+    case 0x58: st = "Time Signature"; break;
+    case 0x59: st = "Key Signature"; break;
+    case 0x7F: st = "Sequencer-Specific Meta-event"; break;
+    default:
+      sprintf(buffer,"Meta[%02X]", metatype);
+      st = buffer;
+  }
+  return st;
+}
+
 int read_prefix(FILE *fp, MidiPrefix *prefix)
 {
   MidiFilePrefix mfp;
@@ -49,6 +96,146 @@ int read_header(FILE *fp, MidiHeader *header) {
   return 0;
 }
 
+
+
+int read_track(FILE *fp, size_t len) {
+  int i;
+  TrackParser tp;
+  tp.status = StatusDelta;
+  tp.delta  = 0;
+  tp.cmd    = 0;
+  printf("Track Data:\n");
+  for(i=0;i<len;i++) {
+    int ch = fgetc(fp);
+    if(ch==EOF)
+      break;
+    tp.ch = ch;
+    parse_track(&tp);
+/*    printf("%02X ", ch);*/
+  }
+  printf("\n**********************************\n\n");
+}
+
+int parse_track(TrackParser *tp) {
+  if( tp->status == StatusError )
+    return 2;
+
+  switch(tp->status) {
+    case StatusDelta:
+        tp->delta = (tp->delta * 128) + (tp->ch & 0x7F);
+        if( (tp->ch & 0x80) == 0 ) {
+          tp->status = StatusCmd;
+        }
+    break;
+    case StatusCmd:
+      if( (tp->ch & 0x80) != 0 ) {
+        tp->orgdatalen = 0;
+        switch(tp->ch & 0xF0) {
+          case 0x80: tp->orgdatalen = 2; tp->status = StatusData; tp->cmd = 1; break;
+          case 0x90: tp->orgdatalen = 2; tp->status = StatusData; tp->cmd = 2; break;
+          case 0xA0: tp->orgdatalen = 2; tp->status = StatusData; tp->cmd = 3; break;
+          case 0xB0: tp->orgdatalen = 2; tp->status = StatusData; tp->cmd = 4; break;
+          case 0xC0: tp->orgdatalen = 1; tp->status = StatusData; tp->cmd = 5; break;
+          case 0xD0: tp->orgdatalen = 1; tp->status = StatusData; tp->cmd = 6; break;
+          case 0xE0: tp->orgdatalen = 2; tp->status = StatusData; tp->cmd = 7; break;
+          case 0xF0: 
+            if( tp->ch == 0xF0 )
+               tp->status = StatusSysex;
+            else if(tp->ch == 0xF7)
+               tp->status = StatusSysex;
+            else if(tp->ch == 0xFF)
+               tp->status = StatusMeta;
+            else
+               tp->status = StatusError; 
+          break;
+          default:
+            tp->status = StatusError;
+        }
+        tp->elen = 0;
+        if( tp->status != StatusError ) {
+/*          printf("Delta %lu Command: %u %02X\n",tp->delta, tp->cmd, tp->ch);*/
+        }
+      }
+      tp->datalen = tp->orgdatalen;
+    break;
+    case StatusData:
+      if( (tp->ch & 0x80) || tp->datalen == 0) {
+        tp->status = StatusError;
+      }
+      else {
+        tp->datalen--;
+        if(tp->datalen == 0) {
+          tp->status = StatusDelta;
+          tp->delta  = 0;
+        }
+      }
+    break;
+    case StatusSysex:
+      tp->elen = (tp->elen * 128) + (tp->ch & 0x7F);
+      if( (tp->ch & 0x80) == 0 ) {
+        tp->status = StatusSysexData;
+        if( tp->elen > 0 ) {
+          tp->status = StatusMetaData;
+          printf("@+%08lu SysexData (%lu) [ ", tp->delta, tp->elen);
+        }
+        else {
+          tp->status = StatusDelta;
+          printf("@+%08lu SysexData (%lu) [ ]", tp->delta, tp->elen);
+        }
+      }
+    break;
+    case StatusMeta:
+      tp->metatype = tp->ch;
+      tp->status = StatusMetaLen;
+      tp->elen   = 0;
+    break;
+    case StatusMetaLen:
+      tp->elen = (tp->elen * 128) + (tp->ch & 0x7F);
+      if( (tp->ch & 0x80) == 0 ) {
+        if( tp->elen > 0 ) {
+          tp->status = StatusMetaData;
+          printf("@+%08lu %s (%lu) [ ", tp->delta, metalabel(tp->metatype), tp->elen);
+        }
+        else {
+          tp->status = StatusDelta;
+          printf("@+%08lu %s", tp->delta, metalabel(tp->metatype));
+        }
+      }
+    break;
+    case StatusSysexData:
+      if( tp->elen == 0) {
+        printf("] *** Error ***\n");
+        tp->status = StatusError;
+      }
+      else {
+        printf("%02X ", tp->ch );
+        tp->elen--;
+        if(tp->elen == 0) {
+          printf("]\n");
+          tp->status = StatusDelta;
+          tp->delta  = 0;
+        }
+      }
+    break;
+    case StatusMetaData:
+      if( tp->elen == 0) {
+        printf("] *** Error ***\n");
+        tp->status = StatusError;
+      }
+      else {
+        printf("%02X ", tp->ch );
+        tp->elen--;
+        if(tp->elen == 0) {
+          printf("]\n");
+          tp->status = StatusDelta;
+          tp->delta  = 0;
+        }
+      }
+    break;
+  }
+}
+
+
 main(int argc, char **argv)
 {
   FILE *fp;
@@ -70,6 +257,9 @@ main(int argc, char **argv)
         break;
       }
       printf("Format %u Tracks %u\n", mh.format, mh.tracks );
+    }
+    else if( !strcmp(mp.type,"MTrk") ) {
+      read_track(fp, mp.length);
     }
     else {
       if(offset < 0)
