@@ -27,14 +27,34 @@ typedef struct {
 } MidiHeader;
 
 
-typedef enum {meNoteOn, meNoteOff, meAny, meSysex, meMeta} MidiEventType;
+typedef enum {meCV, meCVRunning, meCommon, meSystem, meSysex, meMeta} MidiEventType;
 
 typedef struct _MidiEventNode {
   struct _MidiEventNode *next;
+  unsigned long time;
   MidiEventType type;
-  unsigned char metatype;
+  union {
+    struct {
+      unsigned char type;
+      unsigned char channel;
+    } vc; /*voice channel*/
+    struct {
+      unsigned char type;
+    } common;
+    struct {
+      unsigned char type;
+    } system;
+    struct {
+      unsigned long length;
+      unsigned char type;
+    } sysex;
+    struct {
+      unsigned char type;
+      unsigned long length;
+    } meta;
+  } t;
   size_t datalen;
-  unsigned char firstdata;
+  unsigned char firstdata[0];
 } MidiEventNode;
 
 
@@ -70,30 +90,14 @@ void reset_mem(MemPool *pool)
 
 void *alloc_mem(MemPool *pool, size_t len)
 {
-  if( pointer && pool->current + len < pool->limit ) {
+  if( pool->pointer && pool->current + len < pool->limit ) {
+    void *ptr = &pool->pointer[pool->current];
     pool->current += len;
-    return &pointer[pool->current];
+    return ptr;
   }
   return NULL;
 }
 
-int store_event_data( TrackParser *tp, unsigned char data )
-{
-  if( tp->en.datalen == 0 ) {
-    tp->en.firstdata = data;
-    tp->en.datalen++;
-    return 1;
-  }
-  else {
-    char *datap;
-    if( datap = (char *)alloc_mem(tp->mempool, 1) ) {
-      *datap = data;
-      tp->en.datalen++;
-      return 1;
-    }
-  }
-  return 0; /*Error*/
-}
 
 typedef struct {
   enum {StatusDelta, StatusCmd, StatusData, StatusSysex, StatusMeta, StatusError, StatusSysexData, StatusMetaData, StatusMetaLen} status;
@@ -107,7 +111,74 @@ typedef struct {
   unsigned char metatype;
   unsigned char channel;
   unsigned long time;
+  MemPool *mempool;
+  MidiEventNode *first;
+  MidiEventNode *current;
 } TrackParser;
+
+int store_event_data( TrackParser *tp, unsigned char data )
+{
+  if(!tp->current)
+    return 0; /*error*/
+
+  if( tp->current->datalen == 0 ) {
+/*    printf("<%lX>\n",(unsigned long) tp->current);*/
+/*    printf("<*%lX %lX\n",(unsigned long) &tp->current->firstdata, (unsigned long) &tp->mempool->pointer[tp->mempool->current] );*/
+    tp->current->firstdata[0] = data;
+    tp->current->datalen++;
+    return 1;
+  }
+  else {
+    char *datap;
+    if( datap = (char *)alloc_mem(tp->mempool, 1) ) {
+/*      printf("<%lu\n",(unsigned long) datap);*/
+      *datap = data;
+      tp->current->datalen++;
+      return 1;
+    }
+  }
+  return 0; /*Error*/
+}
+
+int new_event_node(TrackParser *tp, MidiEventType type )
+{
+  MidiEventNode *new = (MidiEventNode *)alloc_mem(tp->mempool, sizeof(MidiEventNode));
+  if(!new)
+    return 0;
+  if(!tp->first) {
+    tp->first = new;
+  }
+  else {
+    tp->current->next = new;
+  }
+  tp->current = new;
+  new->next = NULL;
+
+  new->type = type;
+  new->time = tp->time;
+  new->datalen = 0;
+  
+  switch(type)
+  {
+    case meCV:
+    case meCVRunning:
+        new->t.vc.channel = tp->channel;
+        new->t.vc.type    = tp->cmd;
+    break;
+    case meCommon:
+      new->t.common.type = tp->ch;
+    break;
+    case meSystem:
+      new->t.system.type = tp->ch;
+    break;
+    case meSysex:
+      new->t.system.type = tp->ch;
+    break;
+    default:
+      new->t.meta.type = tp->ch;
+  }
+  return 1;
+}
 
 const char *metalabel(unsigned char metatype) {
   const char *st = "Meta Unknown";
@@ -194,11 +265,15 @@ int read_header(FILE *fp, MidiHeader *header) {
 }
 
 
-void init_track_parser(TrackParser *tp) {
+void init_track_parser(TrackParser *tp, MemPool *mem) {
+  tp->mempool = mem;
+  tp->first   = NULL;
+  tp->current = NULL;
+
   tp->status = StatusDelta;
   tp->delta  = 0L;
   tp->cmd    = 0;
-  tp->time = 0L;
+  tp->time   = 0L;
 }
 
 /*
@@ -210,6 +285,9 @@ int update_track_time(TrackParser *tp)
     tp->time = -1;
     return -1;
   }
+  if(tp->time > 100000 ) {
+    printf("OOOOOOOOOOOOOOOOOOO\n");
+  }
   tp->time += tp->delta;
   return 0;
 }
@@ -220,10 +298,27 @@ void parse_new_delta(TrackParser *tp)
   tp->delta  = 0L;
 }
 
-int read_track(FILE *fp, size_t len) {
+void dump_track_events( MidiEventNode *first )
+{
+  MidiEventNode *cur = first;
+  while(cur) {
+    switch( cur->type )
+    {
+      case meCV:        printf("@%010lu Channel/Voice\n", cur->time); break;
+      case meCVRunning: printf("@%010lu Channel/Voice (R)\n", cur->time); break;
+      case meCommon:    printf("@%010lu Common\n", cur->time); break;
+      case meSystem:    printf("@%010lu System\n", cur->time); break;
+      case meSysex:     printf("@%010lu Sysex\n", cur->time); break;
+      case meMeta:      printf("@%010lu Meta\n", cur->time); break;
+    }
+    cur = cur->next;
+  }
+}
+
+int read_track(FILE *fp, size_t len, MemPool *mem) {
   int i;
   TrackParser tp;
-  init_track_parser(&tp);
+  init_track_parser(&tp, mem);
   printf("Track Data:\n");
   for(i=0;i<len;i++) {
     int ch = fgetc(fp);
@@ -233,8 +328,12 @@ int read_track(FILE *fp, size_t len) {
     parse_track(&tp);
   }
   printf("\n**********************************\n\n");
+  if( tp.status != StatusError && tp.first ) {
+    printf("<<Success>>\n");
+    dump_track_events(tp.first);
+    printf("<<Dump track End>>\n");
+  }
 }
-
 
 int parse_track(TrackParser *tp) {
   if( tp->status == StatusError )
@@ -250,6 +349,7 @@ int parse_track(TrackParser *tp) {
     break;
     case StatusCmd:
       if( (tp->ch & 0x80) != 0 ) {
+        MidiEventType type = meCV;
         tp->orgdatalen = 0;
         switch(tp->ch & 0xF0) {
           case 0x80: tp->orgdatalen = 2; tp->status = StatusData; tp->cmd = 1; tp->channel = tp->ch & 0x0F; break;
@@ -261,22 +361,22 @@ int parse_track(TrackParser *tp) {
           case 0xE0: tp->orgdatalen = 2; tp->status = StatusData; tp->cmd = 7; tp->channel = tp->ch & 0x0F; break;
           case 0xF0:
             switch( tp->ch ) {
-              case 0xF0: tp->status = StatusSysex; tp->cmd = 0; break;
-              case 0xF1: tp->cmd = 0; parse_new_delta(tp); break;
-              case 0xF2: /*Song Position Pointer*/ tp->status = StatusData; tp->orgdatalen = 2; tp->cmd = 0; break;
-              case 0xF3: /*Song Select*/ tp->status = StatusData; tp->orgdatalen = 1; tp->cmd = 0; break;
-              case 0xF4: /**/ tp->cmd = 0; parse_new_delta(tp); break;
-              case 0xF5: /**/ tp->cmd = 0; parse_new_delta(tp); break;
-              case 0xF6: /*Tune Request*/ tp->cmd = 0; parse_new_delta(tp); break;
-              case 0xF7: tp->status = StatusSysex; tp->cmd = 0; break;
-              case 0xF8: /*Timing Clock*/ tp->orgdatalen = 0; parse_new_delta(tp); break;
-              case 0xF9: /*Unknown*/      tp->orgdatalen = 0; parse_new_delta(tp); break;
-              case 0xFA: /*Start*/        tp->orgdatalen = 0; parse_new_delta(tp); break;
-              case 0xFB: /*Stop*/         tp->orgdatalen = 0; parse_new_delta(tp); break;
-              case 0xFC: /*Unknown*/      tp->orgdatalen = 0; parse_new_delta(tp); break;
-              case 0xFD: /*Unknown*/      tp->orgdatalen = 0; parse_new_delta(tp); break;
-              case 0xFE: /*Active Sensing*/ tp->orgdatalen = 0; parse_new_delta(tp); break;
-              case 0xFF: tp->status = StatusMeta; tp->cmd = 0; break;
+              case 0xF0: tp->status = StatusSysex; tp->cmd = 0; type = meSysex; break;
+              case 0xF1: tp->cmd = 0; parse_new_delta(tp); type = meCommon; break;
+              case 0xF2: /*Song Position Pointer*/ tp->status = StatusData; tp->orgdatalen = 2; tp->cmd = 0; type = meCommon; break;
+              case 0xF3: /*Song Select*/ tp->status = StatusData; tp->orgdatalen = 1; tp->cmd = 0; type = meCommon; break;
+              case 0xF4: /**/ tp->cmd = 0; parse_new_delta(tp); type = meCommon; break;
+              case 0xF5: /**/ tp->cmd = 0; parse_new_delta(tp); type = meCommon; break;
+              case 0xF6: /*Tune Request*/ tp->cmd = 0; parse_new_delta(tp); type = meCommon; break;
+              case 0xF7: tp->status = StatusSysex; tp->cmd = 0; type = meSysex; break;
+              case 0xF8: /*Timing Clock*/ tp->orgdatalen = 0; parse_new_delta(tp); type = meSystem; break;
+              case 0xF9: /*Unknown*/      tp->orgdatalen = 0; parse_new_delta(tp); type = meSystem; break;
+              case 0xFA: /*Start*/        tp->orgdatalen = 0; parse_new_delta(tp); type = meSystem; break;
+              case 0xFB: /*Stop*/         tp->orgdatalen = 0; parse_new_delta(tp); type = meSystem; break;
+              case 0xFC: /*Unknown*/      tp->orgdatalen = 0; parse_new_delta(tp); type = meSystem; break;
+              case 0xFD: /*Unknown*/      tp->orgdatalen = 0; parse_new_delta(tp); type = meSystem; break;
+              case 0xFE: /*Active Sensing*/ tp->orgdatalen = 0; parse_new_delta(tp); type = meSystem; break;
+              case 0xFF: tp->status = StatusMeta; tp->cmd = 0; type = meMeta; break;
               default: tp->cmd = 0; tp->orgdatalen = 0; parse_new_delta(tp);
             }
           break;
@@ -285,7 +385,14 @@ int parse_track(TrackParser *tp) {
         }
         tp->elen = 0;
         if( tp->status != StatusError && tp->ch < 0xF0 ) {
-            printf("@%010lu Channel %u %s (%lu) [ ", tp->time, tp->channel+1, midi_cmd_string(tp->cmd, 0), tp->orgdatalen);
+/*            printf("@%010lu Channel %u %s (%lu) [ ", tp->time, tp->channel+1, midi_cmd_string(tp->cmd, 0), tp->orgdatalen);*/
+        }
+        if( tp->status != StatusError ) {
+          if( ! new_event_node(tp, type) ) {
+            fprintf(stderr, "Cannot alloc Event memory\n");
+            tp->status = StatusError;
+            return;
+          }
         }
         tp->datalen = tp->orgdatalen;
       }
@@ -296,10 +403,16 @@ int parse_track(TrackParser *tp) {
         }
         else {
           tp->datalen = tp->orgdatalen;
-          printf("@%010lu Channel %u %s (%lu) [ %02X ", tp->time, tp->channel+1, midi_cmd_string(tp->cmd, 1), tp->orgdatalen, tp->ch );
+/*          printf("@%010lu Channel %u %s (%lu) [ %02X ", tp->time, tp->channel+1, midi_cmd_string(tp->cmd, 1), tp->orgdatalen, tp->ch );*/
+          if(! new_event_node(tp, meCVRunning) ) {
+            fprintf(stderr, "Cannot alloc Event memory\n");
+            tp->status = StatusError;
+            return;
+          }
+          store_event_data(tp, tp->ch);
           tp->datalen--;
           if(tp->datalen == 0) {
-            printf("]\n");
+/*            printf("]\n");*/
             parse_new_delta(tp);
           }
           else {
@@ -313,24 +426,26 @@ int parse_track(TrackParser *tp) {
         tp->status = StatusError;
       }
       else {
-        printf("%02X ", tp->ch);
+/*        printf("%02X ", tp->ch);*/
+        store_event_data(tp, tp->ch);
         tp->datalen--;
         if(tp->datalen == 0) {
-          printf("]\n");
+/*          printf("]\n");*/
           parse_new_delta(tp);
         }
       }
     break;
     case StatusSysex:
+      store_event_data(tp, tp->ch); /* whole sysex is stored to be forward ?*/
       tp->elen = (tp->elen * 128) + (tp->ch & 0x7F);
       if( (tp->ch & 0x80) == 0 ) {
         tp->status = StatusSysexData;
         if( tp->elen > 0 ) {
           tp->status = StatusSysexData;
-          printf("@%010lu SysexData (%lu) [ ", tp->time, tp->elen);
+/*          printf("@%010lu SysexData (%lu) [ ", tp->time, tp->elen);*/
         }
         else {
-          printf("@%010lu SysexData (%lu) [ ]", tp->time, tp->elen);
+/*          printf("@%010lu SysexData (%lu) [ ]", tp->time, tp->elen);*/
           parse_new_delta(tp);
         }
       }
@@ -345,10 +460,10 @@ int parse_track(TrackParser *tp) {
       if( (tp->ch & 0x80) == 0 ) {
         if( tp->elen > 0 ) {
           tp->status = StatusMetaData;
-          printf("@%010lu %s (%lu) [ ", tp->time, metalabel(tp->metatype), tp->elen);
+/*          printf("@%010lu %s (%lu) [ ", tp->time, metalabel(tp->metatype), tp->elen);*/
         }
         else {
-          printf("@%010lu %s", tp->time, metalabel(tp->metatype));
+/*          printf("@%010lu %s", tp->time, metalabel(tp->metatype));*/
           parse_new_delta(tp);
         }
       }
@@ -359,10 +474,11 @@ int parse_track(TrackParser *tp) {
         tp->status = StatusError;
       }
       else {
-        printf("%02X ", tp->ch );
+/*        printf("%02X ", tp->ch );*/
+        store_event_data(tp, tp->ch);
         tp->elen--;
         if(tp->elen == 0) {
-          printf("]\n");
+/*          printf("]\n");*/
           parse_new_delta(tp);
         }
       }
@@ -373,10 +489,11 @@ int parse_track(TrackParser *tp) {
         tp->status = StatusError;
       }
       else {
-        show_meta_data(tp->metatype, tp->ch);
+/*        show_meta_data(tp->metatype, tp->ch);*/
+        store_event_data(tp, tp->ch);
         tp->elen--;
         if(tp->elen == 0) {
-          printf("]\n");
+/*          printf("]\n");*/
           parse_new_delta(tp);
         }
       }
@@ -398,6 +515,9 @@ main(int argc, char **argv)
 
   MidiPrefix mp;
   MidiHeader mh;
+  MemPool mpool;
+  printf("Buffer addr %p\n", buffer);
+  init_mem_pool(&mpool, buffer, POOL_LIMIT);
   while( read_prefix(fp,&mp) ) {
     printf("Type %s Len: %u\n", mp.type, (unsigned int)mp.length);
     long offset = mp.length;
@@ -408,7 +528,8 @@ main(int argc, char **argv)
       printf("Format %u Tracks %u\n", mh.format, mh.tracks );
     }
     else if( !strcmp(mp.type,"MTrk") ) {
-      read_track(fp, mp.length);
+      read_track(fp, mp.length, &mpool);
+      printf("Current MemPool offset: %lu\n", (unsigned long)mpool.current);
     }
     else {
       if(offset < 0)
