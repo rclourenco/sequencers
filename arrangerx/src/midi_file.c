@@ -31,9 +31,69 @@ typedef enum {meNoteOn, meNoteOff, meAny, meSysex, meMeta} MidiEventType;
 
 typedef struct _MidiEventNode {
   struct _MidiEventNode *next;
-  size_t len;
   MidiEventType type;
-}MidiEventNode;
+  unsigned char metatype;
+  size_t datalen;
+  unsigned char firstdata;
+} MidiEventNode;
+
+
+typedef struct {
+  char *pointer;
+  size_t limit;
+  size_t current;
+} MemPool;
+
+#define POOL_LIMIT 1024*1024
+char buffer[POOL_LIMIT];
+
+char *init_mem_pool(MemPool *pool, void *buffer, size_t limit)
+{
+  pool->limit = limit;
+  pool->current = 0;
+
+  if(buffer) {
+    pool->pointer = buffer;
+  }
+  else {
+    pool->pointer = (char *)malloc(limit);
+  }
+
+  return pool->pointer;
+}
+
+
+void reset_mem(MemPool *pool)
+{
+  pool->current = 0;
+}
+
+void *alloc_mem(MemPool *pool, size_t len)
+{
+  if( pointer && pool->current + len < pool->limit ) {
+    pool->current += len;
+    return &pointer[pool->current];
+  }
+  return NULL;
+}
+
+int store_event_data( TrackParser *tp, unsigned char data )
+{
+  if( tp->en.datalen == 0 ) {
+    tp->en.firstdata = data;
+    tp->en.datalen++;
+    return 1;
+  }
+  else {
+    char *datap;
+    if( datap = (char *)alloc_mem(tp->mempool, 1) ) {
+      *datap = data;
+      tp->en.datalen++;
+      return 1;
+    }
+  }
+  return 0; /*Error*/
+}
 
 typedef struct {
   enum {StatusDelta, StatusCmd, StatusData, StatusSysex, StatusMeta, StatusError, StatusSysexData, StatusMetaData, StatusMetaLen} status;
@@ -45,6 +105,8 @@ typedef struct {
   unsigned long eolen;
   unsigned long elen;
   unsigned char metatype;
+  unsigned char channel;
+  unsigned long time;
 } TrackParser;
 
 const char *metalabel(unsigned char metatype) {
@@ -74,6 +136,41 @@ const char *metalabel(unsigned char metatype) {
   return st;
 }
 
+void show_meta_data(unsigned char metatype, unsigned char byte) {
+  switch( metatype ) {
+    case 0:
+    case 1:
+    case 2:
+    case 3:
+    case 4:
+    case 5:
+    case 6:
+    case 7:
+    if( byte >= 32 && byte < 127 ) {
+      putchar(byte);
+    }
+    else {
+      printf("<%02X>", byte);
+    }
+    break;
+    default: printf("%02X ", byte); break;
+  }
+}
+
+const char *midi_cmd_string(unsigned char cmd, char running) {
+  const char *st = running ? "<Unknown>" : "Unknown";
+  switch( cmd ) {
+    case 1: st = running ? "<Note Off>"          : "Note Off";          break;
+    case 2: st = running ? "<Note On>"           : "Note On";           break;
+    case 3: st = running ? "<Poly Key Pressure>" : "Poly Key Pressure"; break;
+    case 4: st = running ? "<Controller Change>" : "Controller Change"; break;
+    case 5: st = running ? "<Program Change>"    : "Program Change";    break;
+    case 6: st = running ? "<Channel Pressure>"  : "Channel Pressure";  break;
+    case 7: st = running ? "<Pitch Bend>"        : "Pitch Bend";        break;
+  }
+  return st;
+}
+
 int read_prefix(FILE *fp, MidiPrefix *prefix)
 {
   MidiFilePrefix mfp;
@@ -97,13 +194,36 @@ int read_header(FILE *fp, MidiHeader *header) {
 }
 
 
+void init_track_parser(TrackParser *tp) {
+  tp->status = StatusDelta;
+  tp->delta  = 0L;
+  tp->cmd    = 0;
+  tp->time = 0L;
+}
+
+/*
+  return !0 if overflow
+*/
+int update_track_time(TrackParser *tp)
+{
+  if( tp->time + tp->delta < tp->time ) {
+    tp->time = -1;
+    return -1;
+  }
+  tp->time += tp->delta;
+  return 0;
+}
+
+void parse_new_delta(TrackParser *tp)
+{
+  tp->status = StatusDelta;
+  tp->delta  = 0L;
+}
 
 int read_track(FILE *fp, size_t len) {
   int i;
   TrackParser tp;
-  tp.status = StatusDelta;
-  tp.delta  = 0;
-  tp.cmd    = 0;
+  init_track_parser(&tp);
   printf("Track Data:\n");
   for(i=0;i<len;i++) {
     int ch = fgetc(fp);
@@ -111,10 +231,10 @@ int read_track(FILE *fp, size_t len) {
       break;
     tp.ch = ch;
     parse_track(&tp);
-/*    printf("%02X ", ch);*/
   }
   printf("\n**********************************\n\n");
 }
+
 
 int parse_track(TrackParser *tp) {
   if( tp->status == StatusError )
@@ -125,48 +245,79 @@ int parse_track(TrackParser *tp) {
         tp->delta = (tp->delta * 128) + (tp->ch & 0x7F);
         if( (tp->ch & 0x80) == 0 ) {
           tp->status = StatusCmd;
+          update_track_time(tp);
         }
     break;
     case StatusCmd:
       if( (tp->ch & 0x80) != 0 ) {
         tp->orgdatalen = 0;
         switch(tp->ch & 0xF0) {
-          case 0x80: tp->orgdatalen = 2; tp->status = StatusData; tp->cmd = 1; break;
-          case 0x90: tp->orgdatalen = 2; tp->status = StatusData; tp->cmd = 2; break;
-          case 0xA0: tp->orgdatalen = 2; tp->status = StatusData; tp->cmd = 3; break;
-          case 0xB0: tp->orgdatalen = 2; tp->status = StatusData; tp->cmd = 4; break;
-          case 0xC0: tp->orgdatalen = 1; tp->status = StatusData; tp->cmd = 5; break;
-          case 0xD0: tp->orgdatalen = 1; tp->status = StatusData; tp->cmd = 6; break;
-          case 0xE0: tp->orgdatalen = 2; tp->status = StatusData; tp->cmd = 7; break;
-          case 0xF0: 
-            if( tp->ch == 0xF0 )
-               tp->status = StatusSysex;
-            else if(tp->ch == 0xF7)
-               tp->status = StatusSysex;
-            else if(tp->ch == 0xFF)
-               tp->status = StatusMeta;
-            else
-               tp->status = StatusError; 
+          case 0x80: tp->orgdatalen = 2; tp->status = StatusData; tp->cmd = 1; tp->channel = tp->ch & 0x0F; break;
+          case 0x90: tp->orgdatalen = 2; tp->status = StatusData; tp->cmd = 2; tp->channel = tp->ch & 0x0F; break;
+          case 0xA0: tp->orgdatalen = 2; tp->status = StatusData; tp->cmd = 3; tp->channel = tp->ch & 0x0F; break;
+          case 0xB0: tp->orgdatalen = 2; tp->status = StatusData; tp->cmd = 4; tp->channel = tp->ch & 0x0F; break;
+          case 0xC0: tp->orgdatalen = 1; tp->status = StatusData; tp->cmd = 5; tp->channel = tp->ch & 0x0F; break;
+          case 0xD0: tp->orgdatalen = 1; tp->status = StatusData; tp->cmd = 6; tp->channel = tp->ch & 0x0F; break;
+          case 0xE0: tp->orgdatalen = 2; tp->status = StatusData; tp->cmd = 7; tp->channel = tp->ch & 0x0F; break;
+          case 0xF0:
+            switch( tp->ch ) {
+              case 0xF0: tp->status = StatusSysex; tp->cmd = 0; break;
+              case 0xF1: tp->cmd = 0; parse_new_delta(tp); break;
+              case 0xF2: /*Song Position Pointer*/ tp->status = StatusData; tp->orgdatalen = 2; tp->cmd = 0; break;
+              case 0xF3: /*Song Select*/ tp->status = StatusData; tp->orgdatalen = 1; tp->cmd = 0; break;
+              case 0xF4: /**/ tp->cmd = 0; parse_new_delta(tp); break;
+              case 0xF5: /**/ tp->cmd = 0; parse_new_delta(tp); break;
+              case 0xF6: /*Tune Request*/ tp->cmd = 0; parse_new_delta(tp); break;
+              case 0xF7: tp->status = StatusSysex; tp->cmd = 0; break;
+              case 0xF8: /*Timing Clock*/ tp->orgdatalen = 0; parse_new_delta(tp); break;
+              case 0xF9: /*Unknown*/      tp->orgdatalen = 0; parse_new_delta(tp); break;
+              case 0xFA: /*Start*/        tp->orgdatalen = 0; parse_new_delta(tp); break;
+              case 0xFB: /*Stop*/         tp->orgdatalen = 0; parse_new_delta(tp); break;
+              case 0xFC: /*Unknown*/      tp->orgdatalen = 0; parse_new_delta(tp); break;
+              case 0xFD: /*Unknown*/      tp->orgdatalen = 0; parse_new_delta(tp); break;
+              case 0xFE: /*Active Sensing*/ tp->orgdatalen = 0; parse_new_delta(tp); break;
+              case 0xFF: tp->status = StatusMeta; tp->cmd = 0; break;
+              default: tp->cmd = 0; tp->orgdatalen = 0; parse_new_delta(tp);
+            }
           break;
           default:
             tp->status = StatusError;
         }
         tp->elen = 0;
-        if( tp->status != StatusError ) {
-/*          printf("Delta %lu Command: %u %02X\n",tp->delta, tp->cmd, tp->ch);*/
+        if( tp->status != StatusError && tp->ch < 0xF0 ) {
+            printf("@%010lu Channel %u %s (%lu) [ ", tp->time, tp->channel+1, midi_cmd_string(tp->cmd, 0), tp->orgdatalen);
+        }
+        tp->datalen = tp->orgdatalen;
+      }
+      else {
+        if( tp->orgdatalen == 0 || !tp->cmd ) {
+            /* Ignore these data bytes*/
+            /*tp->status = StatusError;*/
+        }
+        else {
+          tp->datalen = tp->orgdatalen;
+          printf("@%010lu Channel %u %s (%lu) [ %02X ", tp->time, tp->channel+1, midi_cmd_string(tp->cmd, 1), tp->orgdatalen, tp->ch );
+          tp->datalen--;
+          if(tp->datalen == 0) {
+            printf("]\n");
+            parse_new_delta(tp);
+          }
+          else {
+            tp->status = StatusData;
+          }
         }
       }
-      tp->datalen = tp->orgdatalen;
     break;
     case StatusData:
       if( (tp->ch & 0x80) || tp->datalen == 0) {
         tp->status = StatusError;
       }
       else {
+        printf("%02X ", tp->ch);
         tp->datalen--;
         if(tp->datalen == 0) {
-          tp->status = StatusDelta;
-          tp->delta  = 0;
+          printf("]\n");
+          parse_new_delta(tp);
         }
       }
     break;
@@ -175,12 +326,12 @@ int parse_track(TrackParser *tp) {
       if( (tp->ch & 0x80) == 0 ) {
         tp->status = StatusSysexData;
         if( tp->elen > 0 ) {
-          tp->status = StatusMetaData;
-          printf("@+%08lu SysexData (%lu) [ ", tp->delta, tp->elen);
+          tp->status = StatusSysexData;
+          printf("@%010lu SysexData (%lu) [ ", tp->time, tp->elen);
         }
         else {
-          tp->status = StatusDelta;
-          printf("@+%08lu SysexData (%lu) [ ]", tp->delta, tp->elen);
+          printf("@%010lu SysexData (%lu) [ ]", tp->time, tp->elen);
+          parse_new_delta(tp);
         }
       }
     break;
@@ -194,11 +345,11 @@ int parse_track(TrackParser *tp) {
       if( (tp->ch & 0x80) == 0 ) {
         if( tp->elen > 0 ) {
           tp->status = StatusMetaData;
-          printf("@+%08lu %s (%lu) [ ", tp->delta, metalabel(tp->metatype), tp->elen);
+          printf("@%010lu %s (%lu) [ ", tp->time, metalabel(tp->metatype), tp->elen);
         }
         else {
-          tp->status = StatusDelta;
-          printf("@+%08lu %s", tp->delta, metalabel(tp->metatype));
+          printf("@%010lu %s", tp->time, metalabel(tp->metatype));
+          parse_new_delta(tp);
         }
       }
     break;
@@ -212,8 +363,7 @@ int parse_track(TrackParser *tp) {
         tp->elen--;
         if(tp->elen == 0) {
           printf("]\n");
-          tp->status = StatusDelta;
-          tp->delta  = 0;
+          parse_new_delta(tp);
         }
       }
     break;
@@ -223,12 +373,11 @@ int parse_track(TrackParser *tp) {
         tp->status = StatusError;
       }
       else {
-        printf("%02X ", tp->ch );
+        show_meta_data(tp->metatype, tp->ch);
         tp->elen--;
         if(tp->elen == 0) {
           printf("]\n");
-          tp->status = StatusDelta;
-          tp->delta  = 0;
+          parse_new_delta(tp);
         }
       }
     break;
