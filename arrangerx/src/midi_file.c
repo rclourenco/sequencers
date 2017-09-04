@@ -1,134 +1,26 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "midi_pattern.h"
 
-typedef struct {
-  unsigned char type[4];
-  unsigned char length[4];
-} MidiFilePrefix;
-
-typedef struct {
-  char type[5];
-  size_t length;
-} MidiPrefix;
-
-typedef struct {
-  unsigned char format[2];
-  unsigned char tracks[2];
-  unsigned char division[2];
-} MidiFileHeader;
-
-typedef struct {
-  unsigned int format;
-  unsigned int tracks;
-  unsigned int ticks_quarter;
-  unsigned int frames_second;
-  unsigned int ticks_frame;
-} MidiHeader;
-
-
-typedef enum {meCV, meCVRunning, meCommon, meSystem, meSysex, meMeta} MidiEventType;
-
-typedef struct _MidiEventNode {
-  struct _MidiEventNode *next;
-  unsigned long time;
-  MidiEventType type;
-  union {
-    struct {
-      unsigned char type;
-      unsigned char channel;
-    } vc; /*voice channel*/
-    struct {
-      unsigned char type;
-    } common;
-    struct {
-      unsigned char type;
-    } system;
-    struct {
-      unsigned long length;
-      unsigned char type;
-    } sysex;
-    struct {
-      unsigned char type;
-      unsigned long length;
-    } meta;
-  } t;
-  size_t datalen;
-  unsigned char data[0];
-} MidiEventNode;
-
-
-typedef struct {
-  char *pointer;
-  size_t limit;
-  size_t current;
-} MemPool;
-
-#define POOL_LIMIT 1024*1024
-char buffer[POOL_LIMIT];
-
-char *init_mem_pool(MemPool *pool, void *buffer, size_t limit)
-{
-  pool->limit = limit;
-  pool->current = 0;
-
-  if(buffer) {
-    pool->pointer = buffer;
-  }
-  else {
-    pool->pointer = (char *)malloc(limit);
-  }
-
-  return pool->pointer;
-}
-
-
-void reset_mem(MemPool *pool)
-{
-  pool->current = 0;
-}
-
-
-/*TODO machine word align*/
-void *alloc_mem(MemPool *pool, size_t len)
-{
-  if( pool->pointer && pool->current + len < pool->limit ) {
-    void *ptr = &pool->pointer[pool->current];
-    pool->current += len;
-    return ptr;
-  }
-  return NULL;
-}
-
-
-typedef struct {
-  enum {StatusDelta, StatusCmd, StatusData, StatusSysex, StatusMeta, StatusError, StatusSysexData, StatusMetaData, StatusMetaLen} status;
-  unsigned char ch; /*current input*/
-  unsigned char cmd;
-  unsigned long delta;
-  unsigned long orgdatalen;
-  unsigned long datalen;
-  unsigned long eolen;
-  unsigned long elen;
-  unsigned char metatype;
-  unsigned char channel;
-  unsigned long time;
-  MemPool *mempool;
-  MidiEventNode *first;
-  MidiEventNode *current;
-} TrackParser;
 
 int store_event_data( TrackParser *tp, unsigned char data )
 {
+
   if(!tp->current)
     return 0; /*error*/
 
-  char *datap;
-  if( datap = (char *)alloc_mem(tp->mempool, 1) ) {
-    *datap = data;
-    tp->current->datalen++;
+  if( tp->datalen ) {
+    if( tp->current->datalen < tp->orgdatalen ) {
+      tp->current->data[tp->current->datalen++] = data;
+    } else {
+      fprintf(stderr, "Ignoring data... Reserved Len: %lu, Current %lu\n", tp->orgdatalen, tp->current->datalen);
+    }
+    tp->datalen--;
     return 1;
   }
+
+  fprintf(stderr, "Data overflow... .!.\n");
 
   return 0; /*Error*/
 }
@@ -142,6 +34,17 @@ int store_meta_type(TrackParser *tp)
   }
   return 0;
 }
+
+int store_sysex_type(TrackParser *tp)
+{
+  if(tp->current) {
+    if( tp->current->type == meSysex )
+      tp->current->t.sysex.type = tp->metatype;
+    return 1;
+  }
+  return 0;
+}
+
 
 int store_sysex_length(TrackParser *tp)
 {
@@ -166,9 +69,12 @@ int store_meta_length(TrackParser *tp)
 
 int new_event_node(TrackParser *tp, MidiEventType type )
 {
-  MidiEventNode *new = (MidiEventNode *)alloc_mem(tp->mempool, sizeof(MidiEventNode));
+  MidiEventNode *new = (MidiEventNode *)malloc(sizeof(MidiEventNode) + tp->orgdatalen*sizeof(unsigned char));
   if(!new)
     return 0;
+
+  tp->datalen = tp->orgdatalen;
+
   if(!tp->first) {
     tp->first = new;
   }
@@ -181,6 +87,7 @@ int new_event_node(TrackParser *tp, MidiEventType type )
   new->type = type;
   new->time = tp->time;
   new->datalen = 0;
+  
   
   switch(type)
   {
@@ -196,12 +103,12 @@ int new_event_node(TrackParser *tp, MidiEventType type )
       new->t.system.type = tp->ch;
     break;
     case meSysex:
-      new->t.sysex.type = tp->ch;
-      new->t.sysex.length = 0;
+      new->t.sysex.length = tp->elen;
+      new->t.sysex.type   = tp->metatype;
     break;
     default:
-      new->t.meta.type = tp->ch;
-      new->t.meta.length = 0;
+      new->t.meta.length = tp->elen;
+      new->t.meta.type   = tp->metatype;
   }
   return 1;
 }
@@ -289,10 +196,11 @@ void dump_meta(MidiEventNode *en)
 
 void dump_sysex(MidiEventNode *en)
 {
-  printf("[%02X", en->t.sysex.type);
+  printf("Sysex_%02x ", en->t.sysex.type);
   int i;
+  printf("[");
   for(i=0;i<en->datalen;i++) {
-    putchar(' ');
+    if(i) putchar(' ');
     printf("%02X", en->data[i]);
   }
   printf("]");
@@ -350,8 +258,7 @@ int read_header(FILE *fp, MidiHeader *header) {
 }
 
 
-void init_track_parser(TrackParser *tp, MemPool *mem) {
-  tp->mempool = mem;
+void init_track_parser(TrackParser *tp) {
   tp->first   = NULL;
   tp->current = NULL;
 
@@ -393,18 +300,19 @@ void dump_track_events( MidiEventNode *first )
       case meCVRunning: printf("@%010lu ", cur->time); dump_channel_voice(cur);putchar('\n'); break;
       case meCommon:    printf("@%010lu Common ", cur->time); dump_common(cur); putchar('\n'); break;
       case meSystem:    printf("@%010lu System ", cur->time); dump_system(cur); putchar('\n'); break;
-      case meSysex:     printf("@%010lu Sysex ", cur->time); dump_sysex(cur); putchar('\n'); break;
+      case meSysex:     printf("@%010lu ", cur->time); dump_sysex(cur); putchar('\n'); break;
       case meMeta:      printf("@%010lu ", cur->time); dump_meta(cur); putchar('\n'); break;
     }
     cur = cur->next;
   }
 }
 
-int read_track(FILE *fp, size_t len, MemPool *mem) {
+MidiEventNode *read_track(FILE *fp, size_t len)
+{
   int i;
   TrackParser tp;
-  init_track_parser(&tp, mem);
-  printf("Track Data:\n");
+  init_track_parser(&tp);
+
   for(i=0;i<len;i++) {
     int ch = fgetc(fp);
     if(ch==EOF)
@@ -412,12 +320,11 @@ int read_track(FILE *fp, size_t len, MemPool *mem) {
     tp.ch = ch;
     parse_track(&tp);
   }
-  printf("\n**********************************\n\n");
+
   if( tp.status != StatusError && tp.first ) {
-    printf("<<Success>>\n");
-    dump_track_events(tp.first);
-    printf("<<Dump track End>>\n");
+    return tp.first;
   }
+  return NULL;
 }
 
 int parse_track(TrackParser *tp) {
@@ -446,14 +353,14 @@ int parse_track(TrackParser *tp) {
           case 0xE0: tp->orgdatalen = 2; tp->status = StatusData; tp->cmd = 7; tp->channel = tp->ch & 0x0F; break;
           case 0xF0:
             switch( tp->ch ) {
-              case 0xF0: tp->status = StatusSysex; tp->cmd = 0; type = meSysex; break;
+              case 0xF0: tp->status = StatusSysex; tp->cmd = 0; type = meSysex; tp->metatype = tp->ch; break;
               case 0xF1: tp->cmd = 0; parse_new_delta(tp); type = meCommon; break;
               case 0xF2: /*Song Position Pointer*/ tp->status = StatusData; tp->orgdatalen = 2; tp->cmd = 0; type = meCommon; break;
               case 0xF3: /*Song Select*/ tp->status = StatusData; tp->orgdatalen = 1; tp->cmd = 0; type = meCommon; break;
               case 0xF4: /**/ tp->cmd = 0; parse_new_delta(tp); type = meCommon; break;
               case 0xF5: /**/ tp->cmd = 0; parse_new_delta(tp); type = meCommon; break;
               case 0xF6: /*Tune Request*/ tp->cmd = 0; parse_new_delta(tp); type = meCommon; break;
-              case 0xF7: tp->status = StatusSysex; tp->cmd = 0; type = meSysex; break;
+              case 0xF7: tp->status = StatusSysex; tp->cmd = 0; type = meSysex; tp->metatype = tp->ch; break;
               case 0xF8: /*Timing Clock*/ tp->orgdatalen = 0; parse_new_delta(tp); type = meSystem; break;
               case 0xF9: /*Unknown*/      tp->orgdatalen = 0; parse_new_delta(tp); type = meSystem; break;
               case 0xFA: /*Start*/        tp->orgdatalen = 0; parse_new_delta(tp); type = meSystem; break;
@@ -469,14 +376,13 @@ int parse_track(TrackParser *tp) {
             tp->status = StatusError;
         }
         tp->elen = 0;
-        if( tp->status != StatusError ) {
+        if( type == meCV && tp->status != StatusError ) {
           if( ! new_event_node(tp, type) ) {
             fprintf(stderr, "Cannot alloc Event memory\n");
             tp->status = StatusError;
             return;
           }
         }
-        tp->datalen = tp->orgdatalen;
       }
       else {
         if( tp->orgdatalen == 0 || !tp->cmd ) {
@@ -484,17 +390,12 @@ int parse_track(TrackParser *tp) {
             /*tp->status = StatusError;*/
         }
         else {
-          tp->datalen = tp->orgdatalen;
-/*          printf("@%010lu Channel %u %s (%lu) [ %02X ", tp->time, tp->channel+1, midi_cmd_string(tp->cmd, 1), tp->orgdatalen, tp->ch );*/
           if(! new_event_node(tp, meCVRunning) ) {
-            fprintf(stderr, "Cannot alloc Event memory\n");
             tp->status = StatusError;
             return;
           }
           store_event_data(tp, tp->ch);
-          tp->datalen--;
           if(tp->datalen == 0) {
-/*            printf("]\n");*/
             parse_new_delta(tp);
           }
           else {
@@ -508,26 +409,25 @@ int parse_track(TrackParser *tp) {
         tp->status = StatusError;
       }
       else {
-/*        printf("%02X ", tp->ch);*/
         store_event_data(tp, tp->ch);
-        tp->datalen--;
         if(tp->datalen == 0) {
-/*          printf("]\n");*/
           parse_new_delta(tp);
         }
       }
     break;
     case StatusSysex:
-      store_event_data(tp, tp->ch); /* whole sysex is stored to be forward ?*/
       tp->elen = (tp->elen * 128) + (tp->ch & 0x7F);
       if( (tp->ch & 0x80) == 0 ) {
         if( tp->elen > 0 ) {
-          store_sysex_length(tp);
+          tp->orgdatalen = tp->elen;
+          if(! new_event_node(tp, meSysex) ) {
+            fprintf(stderr, "Cannot alloc Event memory\n");
+            tp->status = StatusError;
+            return;
+          }
           tp->status = StatusSysexData;
-/*          printf("@%010lu SysexData (%lu) [ ", tp->time, tp->elen);*/
         }
         else {
-/*          printf("@%010lu SysexData (%lu) [ ]", tp->time, tp->elen);*/
           parse_new_delta(tp);
         }
       }
@@ -536,50 +436,46 @@ int parse_track(TrackParser *tp) {
       tp->metatype = tp->ch;
       tp->status = StatusMetaLen;
       tp->elen   = 0;
-      store_meta_type(tp);
     break;
     case StatusMetaLen:
       tp->elen = (tp->elen * 128) + (tp->ch & 0x7F);
       if( (tp->ch & 0x80) == 0 ) {
-        if( tp->elen > 0 ) {
-          /*Store Meta Len*/
-          store_meta_length(tp);
+
+        tp->orgdatalen = tp->elen;
+        if(! new_event_node(tp, meMeta) ) {
+          fprintf(stderr, "Cannot alloc Event memory\n");
+          tp->status = StatusError;
+          return;
+        }
+
+        if( tp->datalen) {
           tp->status = StatusMetaData;
-/*          printf("@%010lu %s (%lu) [ ", tp->time, metalabel(tp->metatype), tp->elen);*/
         }
         else {
-            /*Store Meta Len*/
-/*          printf("@%010lu %s", tp->time, metalabel(tp->metatype));*/
           parse_new_delta(tp);
         }
       }
     break;
     case StatusSysexData:
       if( tp->elen == 0) {
-        printf("] *** Error ***\n");
         tp->status = StatusError;
       }
       else {
-/*        printf("%02X ", tp->ch );*/
         store_event_data(tp, tp->ch);
         tp->elen--;
         if(tp->elen == 0) {
-/*          printf("]\n");*/
           parse_new_delta(tp);
         }
       }
     break;
     case StatusMetaData:
       if( tp->elen == 0) {
-        printf("] *** Error ***\n");
         tp->status = StatusError;
       }
       else {
-/*        show_meta_data(tp->metatype, tp->ch);*/
         store_event_data(tp, tp->ch);
         tp->elen--;
         if(tp->elen == 0) {
-/*          printf("]\n");*/
           parse_new_delta(tp);
         }
       }
@@ -588,41 +484,102 @@ int parse_track(TrackParser *tp) {
 }
 
 
-main(int argc, char **argv)
+void dump_pattern(MidiPattern *pat)
+{
+  MidiTrackNode *current = pat->tracks;
+  int i = 0;
+  while(current) {
+    printf("Track: %u\n", i);
+    dump_track_events(current->events);
+    printf("*********************************\n");
+
+    current = current->next;
+    i++;
+  }
+}
+
+MidiPattern *midi_pattern_load(char *filename)
 {
   FILE *fp;
-  if(argc > 1) {
-    fp = fopen(argv[1],"rb");
-    if(!fp) {
-      fprintf(stderr,"Cannot open file %s\n", argv[1]);
-      return 2;
+  fp = fopen(filename,"rb");
+  if(!fp) {
+    fprintf(stderr,"Cannot open file %s\n", filename);
+    return NULL;
+  }
+
+  MidiPattern *pat = (MidiPattern *)malloc(sizeof(MidiPattern));
+
+  if( pat ) {
+    MidiPrefix mp;
+    MidiHeader mh;
+
+    pat->tracks = NULL;
+    strcpy(pat->filename, filename);
+
+    MidiTrackNode *current = NULL;
+    int expected_tracks = 0;
+    int parsed_tracks   = 0;
+    while( read_prefix(fp,&mp) ) {
+      printf("Type %s Len: %u\n", mp.type, (unsigned int)mp.length);
+      long offset = mp.length;
+      if( !strcmp(mp.type,"MThd") && mp.length == 6 ) {
+        if(!read_header(fp, &mh)) {
+          break;
+        }
+        printf("Format %u Tracks %u\n", mh.format, mh.tracks );
+        expected_tracks = mh.tracks;
+      }
+      else if( !strcmp(mp.type,"MTrk") ) {
+        MidiTrackNode *new = (MidiTrackNode *)malloc(sizeof(MidiTrackNode));
+        if(new) {
+          MidiEventNode *first = read_track(fp, mp.length);
+          if( first ) {
+            new->events = first;
+            new->playing = NULL;
+            new->next    = NULL;
+            if( current ) {
+              current->next = new;
+            }
+            current = new;
+            if( ! pat->tracks ) {
+              pat->tracks = new;
+            }
+            parsed_tracks++;
+          } else {
+            printf("Error importing track...\n");
+            break;
+          }
+        }
+      }
+      else {
+        if(offset < 0)
+          break;
+        if(fseek(fp,offset,SEEK_CUR))
+          break;
+      }
+    }
+
+    if( expected_tracks != parsed_tracks ) {
+      /*TODO free pattern memory */
+      free(pat);
+      pat = NULL;
     }
   }
 
-  MidiPrefix mp;
-  MidiHeader mh;
-  MemPool mpool;
-  printf("Buffer addr %p\n", buffer);
-  init_mem_pool(&mpool, buffer, POOL_LIMIT);
-  while( read_prefix(fp,&mp) ) {
-    printf("Type %s Len: %u\n", mp.type, (unsigned int)mp.length);
-    long offset = mp.length;
-    if( !strcmp(mp.type,"MThd") && mp.length == 6 ) {
-      if(!read_header(fp, &mh)) {
-        break;
-      }
-      printf("Format %u Tracks %u\n", mh.format, mh.tracks );
-    }
-    else if( !strcmp(mp.type,"MTrk") ) {
-      read_track(fp, mp.length, &mpool);
-      printf("Current MemPool offset: %lu\n", (unsigned long)mpool.current);
-    }
-    else {
-      if(offset < 0)
-        break;
-      if(fseek(fp,offset,SEEK_CUR))
-        break;
-    }
-  }
   fclose(fp);
+  return pat;
+}
+
+main(int argc, char **argv)
+{
+  if( argc < 2) {
+    return 1;
+  }
+
+  MidiPattern *patm = midi_pattern_load(argv[1]);
+  if( patm ) {
+    printf("Import Ok\n");
+    dump_pattern(patm);
+  }
+
 }
