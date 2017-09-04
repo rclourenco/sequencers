@@ -4,7 +4,7 @@
    print "$one has ", scalar( $opus->tracks ), " tracks\n";
    
    my @tracks = $opus->tracks;
-   my @events = $tracks[9]->events;
+   my @events = $tracks[2]->events;
    foreach my $event (@events) {
       print "[",join (',', @{$event || []}), "]","\n";
    }

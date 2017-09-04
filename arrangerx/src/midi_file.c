@@ -54,7 +54,7 @@ typedef struct _MidiEventNode {
     } meta;
   } t;
   size_t datalen;
-  unsigned char firstdata[0];
+  unsigned char data[0];
 } MidiEventNode;
 
 
@@ -88,6 +88,8 @@ void reset_mem(MemPool *pool)
   pool->current = 0;
 }
 
+
+/*TODO machine word align*/
 void *alloc_mem(MemPool *pool, size_t len)
 {
   if( pool->pointer && pool->current + len < pool->limit ) {
@@ -121,24 +123,46 @@ int store_event_data( TrackParser *tp, unsigned char data )
   if(!tp->current)
     return 0; /*error*/
 
-  if( tp->current->datalen == 0 ) {
-/*    printf("<%lX>\n",(unsigned long) tp->current);*/
-/*    printf("<*%lX %lX\n",(unsigned long) &tp->current->firstdata, (unsigned long) &tp->mempool->pointer[tp->mempool->current] );*/
-    tp->current->firstdata[0] = data;
+  char *datap;
+  if( datap = (char *)alloc_mem(tp->mempool, 1) ) {
+    *datap = data;
     tp->current->datalen++;
     return 1;
   }
-  else {
-    char *datap;
-    if( datap = (char *)alloc_mem(tp->mempool, 1) ) {
-/*      printf("<%lu\n",(unsigned long) datap);*/
-      *datap = data;
-      tp->current->datalen++;
-      return 1;
-    }
-  }
+
   return 0; /*Error*/
 }
+
+int store_meta_type(TrackParser *tp)
+{
+  if(tp->current) {
+    if( tp->current->type == meMeta )
+      tp->current->t.meta.type = tp->metatype;
+    return 1;
+  }
+  return 0;
+}
+
+int store_sysex_length(TrackParser *tp)
+{
+  if(tp->current) {
+    if( tp->current->type == meSysex )
+      tp->current->t.sysex.length = tp->elen;
+    return 1;
+  }
+  return 0;
+}
+
+int store_meta_length(TrackParser *tp)
+{
+  if(tp->current) {
+    if( tp->current->type == meMeta )
+      tp->current->t.meta.length = tp->elen;
+    return 1;
+  }
+  return 0;
+}
+
 
 int new_event_node(TrackParser *tp, MidiEventType type )
 {
@@ -172,10 +196,12 @@ int new_event_node(TrackParser *tp, MidiEventType type )
       new->t.system.type = tp->ch;
     break;
     case meSysex:
-      new->t.system.type = tp->ch;
+      new->t.sysex.type = tp->ch;
+      new->t.sysex.length = 0;
     break;
     default:
       new->t.meta.type = tp->ch;
+      new->t.meta.length = 0;
   }
   return 1;
 }
@@ -193,7 +219,10 @@ const char *metalabel(unsigned char metatype) {
     case 5: st = "Lyric"; break;
     case 6: st = "Marker"; break;
     case 7: st = "Cue Point"; break;
+    case 8: st = "Program Name"; break;
+    case 9: st = "Device Name"; break;
     case 0x20: st = "Midi Channel Prefix"; break;
+    case 0x21: st = "MIDI Port"; break;
     case 0x2F: st = "End of Track"; break;
     case 0x51: st = "Set Tempo"; break;
     case 0x54: st = "SMTPE Offset"; break;
@@ -228,18 +257,74 @@ void show_meta_data(unsigned char metatype, unsigned char byte) {
   }
 }
 
-const char *midi_cmd_string(unsigned char cmd, char running) {
-  const char *st = running ? "<Unknown>" : "Unknown";
-  switch( cmd ) {
-    case 1: st = running ? "<Note Off>"          : "Note Off";          break;
-    case 2: st = running ? "<Note On>"           : "Note On";           break;
-    case 3: st = running ? "<Poly Key Pressure>" : "Poly Key Pressure"; break;
-    case 4: st = running ? "<Controller Change>" : "Controller Change"; break;
-    case 5: st = running ? "<Program Change>"    : "Program Change";    break;
-    case 6: st = running ? "<Channel Pressure>"  : "Channel Pressure";  break;
-    case 7: st = running ? "<Pitch Bend>"        : "Pitch Bend";        break;
+void dump_meta(MidiEventNode *en)
+{
+  printf("%-20s", metalabel(en->t.meta.type));
+  if( ! en->datalen )
+    return;
+
+  if( en->t.meta.type == 0 || en->t.meta.type > 9) {
+    printf(" [");
+    int i;
+    for(i=0;i<en->datalen;i++) {
+      if(i) putchar(' ');
+      printf("%02X", en->data[i]);
+    }
+    printf("]");
   }
-  return st;
+  else {
+    printf(" '");
+    int i;
+    for(i=0;i<en->datalen;i++) {
+      if( en->data[i] >= 32 && en->data[i] < 127 ) {
+        putchar(en->data[i]);
+      }
+      else {
+        printf("<%02X>", en->data[i]);
+      }
+    }
+    putchar('\'');
+  }
+}
+
+void dump_sysex(MidiEventNode *en)
+{
+  printf("[%02X", en->t.sysex.type);
+  int i;
+  for(i=0;i<en->datalen;i++) {
+    putchar(' ');
+    printf("%02X", en->data[i]);
+  }
+  printf("]");
+}
+
+void dump_common(MidiEventNode *en)
+{
+/*  printf("[");*/
+/*  int i;*/
+/*  for(i=0;i<en->datalen;i++) {*/
+/*    if(i) putchar(' ');*/
+/*    printf("%02X");*/
+/*  }*/
+/*  printf("]");*/
+}
+
+void dump_system(MidiEventNode *en)
+{
+}
+
+
+void dump_channel_voice(MidiEventNode *en) {
+  char rs = en->type == meCVRunning ? 'r':'n';
+  switch( en->t.vc.type ) {
+    case 1: printf("NoteOff           %c ch:%2u note:%3u velocity:%3u", rs, en->t.vc.channel, en->data[0],en->data[1]); break;
+    case 2: printf("NoteOn            %c ch:%2u note:%3u velocity:%3u", rs, en->t.vc.channel, en->data[0],en->data[1]); break;
+    case 3: printf("PolyAftertouch    %c ch:%2u note:%3u pressure:%3u", rs, en->t.vc.channel, en->data[0],en->data[1]); break;
+    case 4: printf("ControllerChange  %c ch:%2u control:%3u value:%3u", rs, en->t.vc.channel, en->data[0],en->data[1]); break;
+    case 5: printf("ProgramChange     %c ch:%2u program:%3u",  rs, en->t.vc.channel, en->data[0]); break;
+    case 6: printf("ChannelAftertouch %c ch:%2u pressure:%3u", rs, en->t.vc.channel, en->data[0]); break;
+    case 7: printf("PitchBend         %c ch:%2u level:%04Xh  ",  rs, en->t.vc.channel, (en->data[0]+en->data[1]*128)); break;
+  }
 }
 
 int read_prefix(FILE *fp, MidiPrefix *prefix)
@@ -304,12 +389,12 @@ void dump_track_events( MidiEventNode *first )
   while(cur) {
     switch( cur->type )
     {
-      case meCV:        printf("@%010lu Channel/Voice\n", cur->time); break;
-      case meCVRunning: printf("@%010lu Channel/Voice (R)\n", cur->time); break;
-      case meCommon:    printf("@%010lu Common\n", cur->time); break;
-      case meSystem:    printf("@%010lu System\n", cur->time); break;
-      case meSysex:     printf("@%010lu Sysex\n", cur->time); break;
-      case meMeta:      printf("@%010lu Meta\n", cur->time); break;
+      case meCV:
+      case meCVRunning: printf("@%010lu ", cur->time); dump_channel_voice(cur);putchar('\n'); break;
+      case meCommon:    printf("@%010lu Common ", cur->time); dump_common(cur); putchar('\n'); break;
+      case meSystem:    printf("@%010lu System ", cur->time); dump_system(cur); putchar('\n'); break;
+      case meSysex:     printf("@%010lu Sysex ", cur->time); dump_sysex(cur); putchar('\n'); break;
+      case meMeta:      printf("@%010lu ", cur->time); dump_meta(cur); putchar('\n'); break;
     }
     cur = cur->next;
   }
@@ -384,9 +469,6 @@ int parse_track(TrackParser *tp) {
             tp->status = StatusError;
         }
         tp->elen = 0;
-        if( tp->status != StatusError && tp->ch < 0xF0 ) {
-/*            printf("@%010lu Channel %u %s (%lu) [ ", tp->time, tp->channel+1, midi_cmd_string(tp->cmd, 0), tp->orgdatalen);*/
-        }
         if( tp->status != StatusError ) {
           if( ! new_event_node(tp, type) ) {
             fprintf(stderr, "Cannot alloc Event memory\n");
@@ -439,8 +521,8 @@ int parse_track(TrackParser *tp) {
       store_event_data(tp, tp->ch); /* whole sysex is stored to be forward ?*/
       tp->elen = (tp->elen * 128) + (tp->ch & 0x7F);
       if( (tp->ch & 0x80) == 0 ) {
-        tp->status = StatusSysexData;
         if( tp->elen > 0 ) {
+          store_sysex_length(tp);
           tp->status = StatusSysexData;
 /*          printf("@%010lu SysexData (%lu) [ ", tp->time, tp->elen);*/
         }
@@ -454,15 +536,19 @@ int parse_track(TrackParser *tp) {
       tp->metatype = tp->ch;
       tp->status = StatusMetaLen;
       tp->elen   = 0;
+      store_meta_type(tp);
     break;
     case StatusMetaLen:
       tp->elen = (tp->elen * 128) + (tp->ch & 0x7F);
       if( (tp->ch & 0x80) == 0 ) {
         if( tp->elen > 0 ) {
+          /*Store Meta Len*/
+          store_meta_length(tp);
           tp->status = StatusMetaData;
 /*          printf("@%010lu %s (%lu) [ ", tp->time, metalabel(tp->metatype), tp->elen);*/
         }
         else {
+            /*Store Meta Len*/
 /*          printf("@%010lu %s", tp->time, metalabel(tp->metatype));*/
           parse_new_delta(tp);
         }
