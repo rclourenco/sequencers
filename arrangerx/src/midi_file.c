@@ -1,8 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "midi_pattern.h"
-
+#include "../../midi_lib/midi_lib.h"
 
 int store_event_data( TrackParser *tp, unsigned char data )
 {
@@ -252,6 +253,19 @@ int read_header(FILE *fp, MidiHeader *header) {
   if( fread(&mfh, sizeof(MidiFileHeader), 1, fp) == 1 ) {
     header->format = (mfh.format[0] << 8) + mfh.format[1];
     header->tracks = (mfh.tracks[0] << 8) + mfh.tracks[1];
+    printf("Division: %02X %02X\n", mfh.division[0], mfh.division[1]);
+    if( mfh.division[0] & 0x80 ) {
+      header->ticks_frame = mfh.division[1];
+      char x = (mfh.division[0] | 0x80);
+      printf("frames_second neg %d\n", x);
+      header->frames_second = -x;
+      header->ticks_quarter = 0;
+    }
+    else {
+      header->ticks_quarter = (mfh.division[0]&0x7F)*256+mfh.division[1];
+      header->ticks_frame   = 0;
+      header->frames_second = 0;
+    }
     return 1;
   }
   return 0;
@@ -515,6 +529,7 @@ MidiPattern *midi_pattern_load(char *filename)
 
     pat->tracks = NULL;
     strcpy(pat->filename, filename);
+    pat->ticks_quarter = 0;
 
     MidiTrackNode *current = NULL;
     int expected_tracks = 0;
@@ -526,7 +541,12 @@ MidiPattern *midi_pattern_load(char *filename)
         if(!read_header(fp, &mh)) {
           break;
         }
-        printf("Format %u Tracks %u\n", mh.format, mh.tracks );
+        printf("Format %u Tracks %u ", mh.format, mh.tracks );
+        if( mh.ticks_quarter ) {
+           pat->ticks_quarter = mh.ticks_quarter;
+        } else{
+          printf("Frames/second: %d Ticks/Frame: %d\n", mh.frames_second, mh.ticks_frame );
+        }
         expected_tracks = mh.tracks;
       }
       else if( !strcmp(mp.type,"MTrk") ) {
@@ -570,6 +590,115 @@ MidiPattern *midi_pattern_load(char *filename)
   return pat;
 }
 
+void execute_midi_event(MidiEventNode *en)
+{
+  unsigned char msg[3];
+  switch(en->type)
+  {
+    case meCV:{
+      msg[0] = 0x70 + (en->t.vc.type << 4) + (en->t.vc.channel & 0xF);
+      if(en->datalen==1) {
+        msg[1]=en->data[0];
+        midi_out(msg,2);
+      }
+      else if(en->datalen==2) {
+        msg[1]=en->data[0];
+        msg[2]=en->data[1];
+        midi_out(msg,3);
+      }
+    }
+    break;
+    case meCVRunning:
+      if(en->datalen==1) {
+        msg[0]=en->data[0];
+        midi_out(msg,1);
+      }
+      else if(en->datalen==2) {
+        msg[0]=en->data[0];
+        msg[1]=en->data[1];
+        midi_out(msg,2);
+      }
+    break;
+  }
+}
+
+int play_pattern(MidiPattern *pat, unsigned long tick)
+{
+  MidiTrackNode *current = pat->tracks;
+  int playing = 0;
+  int i = 0;
+  while(current) {
+    i++;
+    while(current->playing && current->playing->time <= tick) {
+/*      printf("Track %d Fire Midi Events @ %lu\n", i, tick);*/
+      execute_midi_event(current->playing);
+      current->playing = current->playing->next;
+    }
+
+    if(current->playing)
+      playing++;
+
+    current = current->next;
+  }
+
+  return !playing;
+}
+
+void rewind_pattern(MidiPattern *pat)
+{
+  MidiTrackNode *current = pat->tracks;
+  int alldone = 0;
+  while(current) {
+    current->playing = current->events;
+    current = current->next;
+  }
+
+}
+
+void playing_loop(MidiPattern *pat)
+{
+  if(pat->ticks_quarter == 0) {
+    printf("Cannot play MIDI Files with SMTPE timing");
+    return;
+  }
+  unsigned long quarter_interval = 705880;
+  unsigned long ticks_interval = quarter_interval/pat->ticks_quarter;
+
+  struct timespec tp;
+  unsigned long usec_el, o_usec_el,adiff;
+
+  clock_gettime(CLOCK_REALTIME, &tp);
+  o_usec_el = tp.tv_nsec/1000 + (tp.tv_sec%1000) * 1000000;
+
+  unsigned long i;
+  unsigned long osec = 10000;
+  for(i=0;i<0xFFFFF;i++) {
+    clock_gettime(CLOCK_REALTIME, &tp);
+    usec_el = tp.tv_nsec/1000 + (tp.tv_sec%1000) * 1000000;
+    if(usec_el < o_usec_el)
+      adiff = abs(1000000000+usec_el - o_usec_el);
+    else
+      adiff = abs(usec_el - o_usec_el);
+
+    unsigned long tick = adiff/ticks_interval;
+
+    unsigned long adiff2 = (tick+1)*ticks_interval;
+
+    int done = play_pattern(pat,tick);
+    unsigned long secs = adiff/1000000;
+    if( osec != secs ) {
+      printf("\rTime: %02u:%02u:%02u", (unsigned int)(secs/3600)%24,(unsigned int) (secs/60)%60, (unsigned int)secs%60);
+      fflush(stdout);
+      osec = secs;
+    }
+    if(done)
+      break;
+    usleep(adiff2-adiff);
+  }
+
+  printf("\nDone.\n\n");
+}
+
 main(int argc, char **argv)
 {
   if( argc < 2) {
@@ -579,7 +708,13 @@ main(int argc, char **argv)
   MidiPattern *patm = midi_pattern_load(argv[1]);
   if( patm ) {
     printf("Import Ok\n");
-    dump_pattern(patm);
+/*    dump_pattern(patm);*/
   }
 
+  midi_port_install("alsa;out:hw:2,0");
+
+  printf("Playing %s\n", patm->filename);
+  rewind_pattern(patm);
+  playing_loop(patm);
+  
 }
