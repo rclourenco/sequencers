@@ -1,0 +1,6 @@
+song000/intro.mid
+song000/part1.mid
+song000/part2.mid
+song000/part3.mid
+song000/part4.mid
+song000/end.mid
