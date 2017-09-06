@@ -65,7 +65,7 @@ typedef struct _MidiPattern {
   char filename[255];
   MidiTrackNode *tracks;
   unsigned int ticks_quarter;
-//  unsigned long tempo;
+  unsigned long tempo;
 //  unsigned long bpm;
 //  unsigned char meter_a;
 //  unsigned char meter_b;

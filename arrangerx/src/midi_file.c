@@ -2,8 +2,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <signal.h>
 #include "midi_pattern.h"
 #include "../../midi_lib/midi_lib.h"
+
+volatile sig_atomic_t a;
 
 int store_event_data( TrackParser *tp, unsigned char data )
 {
@@ -530,6 +533,7 @@ MidiPattern *midi_pattern_load(char *filename)
     pat->tracks = NULL;
     strcpy(pat->filename, filename);
     pat->ticks_quarter = 0;
+    pat->tempo = 0L;
 
     MidiTrackNode *current = NULL;
     int expected_tracks = 0;
@@ -590,6 +594,16 @@ MidiPattern *midi_pattern_load(char *filename)
   return pat;
 }
 
+void meta_midi_event(MidiEventNode *en, MidiPattern *pat)
+{
+  if(en->type != meMeta)
+    return;
+  if(en->t.meta.type == 0x51 && en->t.meta.length == 3) {
+    pat->tempo = (en->data[0]<<16)+(en->data[1]<<8)+en->data[2];
+    printf("Tempo Change Request: %d %d %d => %lu\n", en->data[0], en->data[1], en->data[2], pat->tempo);
+  }
+}
+
 void execute_midi_event(MidiEventNode *en)
 {
   unsigned char msg[3];
@@ -609,14 +623,18 @@ void execute_midi_event(MidiEventNode *en)
     }
     break;
     case meCVRunning:
-      if(en->datalen==1) {
-        msg[0]=en->data[0];
-        midi_out(msg,1);
-      }
-      else if(en->datalen==2) {
-        msg[0]=en->data[0];
-        msg[1]=en->data[1];
-        midi_out(msg,2);
+      {
+        char c=0;
+        msg[c++] = 0x70 + (en->t.vc.type << 4) + (en->t.vc.channel & 0xF);
+        if(en->datalen==1) {
+          msg[c++]=en->data[0];
+          midi_out(msg,c);
+        }
+        else if(en->datalen==2) {
+          msg[c++]=en->data[0];
+          msg[c++]=en->data[1];
+          midi_out(msg,c);
+        }
       }
     break;
   }
@@ -631,7 +649,11 @@ int play_pattern(MidiPattern *pat, unsigned long tick)
     i++;
     while(current->playing && current->playing->time <= tick) {
 /*      printf("Track %d Fire Midi Events @ %lu\n", i, tick);*/
-      execute_midi_event(current->playing);
+      if(current->playing->type == meMeta)
+        meta_midi_event(current->playing, pat); /*Sequencer Meta Event*/
+      else
+        execute_midi_event(current->playing); /*Synth Event*/
+
       current->playing = current->playing->next;
     }
 
@@ -661,7 +683,10 @@ void playing_loop(MidiPattern *pat)
     printf("Cannot play MIDI Files with SMTPE timing");
     return;
   }
-  unsigned long quarter_interval = 705880;
+  unsigned long quarter_interval = 500000;
+  if(pat->tempo)
+    quarter_interval = pat->tempo;
+  printf("Quarter Interval %lu\n", quarter_interval);
   unsigned long ticks_interval = quarter_interval/pat->ticks_quarter;
 
   struct timespec tp;
@@ -672,7 +697,9 @@ void playing_loop(MidiPattern *pat)
 
   unsigned long i;
   unsigned long osec = 10000;
-  for(i=0;i<0xFFFFF;i++) {
+  int done = 0;
+  while(!done)
+  {
     clock_gettime(CLOCK_REALTIME, &tp);
     usec_el = tp.tv_nsec/1000 + (tp.tv_sec%1000) * 1000000;
     if(usec_el < o_usec_el)
@@ -682,12 +709,18 @@ void playing_loop(MidiPattern *pat)
 
     unsigned long tick = adiff/ticks_interval;
 
-    unsigned long adiff2 = (tick+1)*ticks_interval;
+    done = play_pattern(pat,tick);
 
-    int done = play_pattern(pat,tick);
+    if(pat->tempo && pat->tempo != quarter_interval) {
+      quarter_interval = pat->tempo;
+      ticks_interval = quarter_interval/pat->ticks_quarter;
+    }
+
+    unsigned long adiff2 = (tick+1)*ticks_interval;
     unsigned long secs = adiff/1000000;
+    
     if( osec != secs ) {
-      printf("\rTime: %02u:%02u:%02u", (unsigned int)(secs/3600)%24,(unsigned int) (secs/60)%60, (unsigned int)secs%60);
+      printf("\rBPM: %lu, Time: %02u:%02u:%02u", 60000000L/quarter_interval, (unsigned int)(secs/3600)%24,(unsigned int) (secs/60)%60, (unsigned int)secs%60);
       fflush(stdout);
       osec = secs;
     }
@@ -699,22 +732,116 @@ void playing_loop(MidiPattern *pat)
   printf("\nDone.\n\n");
 }
 
+void midi_reset()
+{
+  int channel;
+  unsigned char msg[3];
+  for(channel=0;channel<15;channel++) {
+    // All Notes Off
+    msg[0] = 0xB0 + channel;
+    msg[1] = 123;
+    msg[2] = 0;
+    midi_out(msg,3);
+    // Reset Controllers
+    msg[0] = 0xB0 + channel;
+    msg[1] = 121;
+    msg[2] = 0;
+    midi_out(msg,3);
+    
+    // Reset Balance
+    msg[0] = 0xB0 + channel;
+    msg[1] = 8;
+    msg[2] = 64;
+    midi_out(msg,3);
+
+  }
+
+
+}
+
+void midi_panic()
+{
+  int channel;
+  unsigned char msg[3];
+  for(channel=0;channel<15;channel++) {
+    msg[0] = 0xB0 + channel;
+    msg[1] = 123;
+    msg[2] = 0;
+    midi_out(msg,3);
+  }
+}
+
+
+void terminate_handler(int n)
+{
+  printf("Terminate Handler input: %d\n", n);
+  exit(2);
+}
+
+#define MAXPATTERNS 10
+int totalpatterns = 0;
+MidiPattern *list[MAXPATTERNS];
+
 main(int argc, char **argv)
 {
   if( argc < 2) {
     return 1;
   }
-
-  MidiPattern *patm = midi_pattern_load(argv[1]);
-  if( patm ) {
-    printf("Import Ok\n");
+  char *ext = NULL;
+  int error=0;
+  if( (ext = rindex(argv[1],'.')) && !strcasecmp(ext, ".txt" )) {
+    printf("List %s\n", argv[1]);
+    FILE *fp;
+    if(fp=fopen(argv[1],"rt")) {
+      while(!feof(fp)) {
+        char buffer[200];
+        int ch;
+        int l=0;
+        while( (ch=fgetc(fp)) != '\n' && ch != EOF ) {
+          if(l<199) buffer[l++] = ch;
+        }
+        buffer[l]='\0';
+        printf("Line %s\n", buffer);
+        if( (ext = rindex(buffer,'.')) && !strcasecmp(ext, ".mid" ) && totalpatterns < MAXPATTERNS ) {
+          list[totalpatterns] = midi_pattern_load(buffer);
+          if(list[totalpatterns]) {
+            printf("Loaded %s\n", buffer);
+            totalpatterns++;
+          } else {
+            printf("Error loading %s\n", buffer);
+            error=1;
+          }
+        }
+      }
+      fclose(fp);
+    }
+  }
+  else {
+    list[0] = midi_pattern_load(argv[1]);
+    if( list[0] ) {
+      printf("Import Ok\n");
+      totalpatterns = 1;
 /*    dump_pattern(patm);*/
+    }
+  }
+/*  exit(0);*/
+
+  if(error) {
+    printf("Aborting....\n");
+    exit(2);
   }
 
   midi_port_install("alsa;out:hw:2,0");
-
-  printf("Playing %s\n", patm->filename);
-  rewind_pattern(patm);
-  playing_loop(patm);
-  
+  midi_reset();
+  signal(SIGTERM, terminate_handler);
+  signal(SIGQUIT, terminate_handler);
+  signal(SIGINT, terminate_handler);
+  signal(SIGHUP, terminate_handler);
+  atexit(midi_panic);
+  int i;
+  for(i=0;i<totalpatterns;i++) {
+    printf("Playing %s\n", list[i]->filename);
+    rewind_pattern(list[i]);
+    playing_loop(list[i]);
+  }
 }
