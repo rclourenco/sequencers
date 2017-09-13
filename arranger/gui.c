@@ -1,4 +1,4 @@
-#include <allegro.h>
+#include "glux.h"
 #include "seq.h"
 
 char the_string[64] = "0.0";
@@ -6,24 +6,6 @@ char the_string[64] = "0.0";
 
 #include <time.h>
 struct tm the_time;
-
-/* helper function to draw a hand on the clock */
-void draw_hand(BITMAP *bmp, int value, int range, int v2, int range2, fixed length, int color)
-{
-   fixed angle;
-   fixed x, y;
-   int w, h;
-
-   angle = ((itofix(value) * 256) / range) + 
-	   ((itofix(v2) * 256) / (range * range2)) - itofix(64);
-
-   x = fixmul(fixcos(angle), length);
-   y = fixmul(fixsin(angle), length);
-   w = bmp->w / 2;
-   h = bmp->h / 2;
-
-   line(bmp, w, h, w + fixtoi(x*w), h + fixtoi(y*h), color);
-}
 
 
 typedef struct{
@@ -212,7 +194,7 @@ int status_update(int msg, DIALOG *d, int c)
 
 		NL;
 
-		rect(temp, dx-1, lp*ls+3, dx+dim+1, (lp+1)*ls-3,makecol(255, 255, 255));
+		al_draw_rectangle(temp, dx-1, lp*ls+3, dx+dim+1, (lp+1)*ls-3,makecol(255, 255, 255));
 		rect(temp, dx-1, (lp+1)*ls+3, dx+dim+1, (lp+2)*ls-3,makecol(255, 255, 255));
 
 		rectfill(temp, dx+beatp0, lp*ls+4, dx+beatp, (lp+1)*ls-4,makecol(255, 255,0));
@@ -413,6 +395,84 @@ int clock_proc(int msg, DIALOG *d, int c)
    return D_O_K;
 }
 
+#define SCRW 800
+#define SCRH 600
+
+typedef struct {
+  ALLEGRO_DISPLAY *display;
+  ALLEGRO_FONT *font;
+  ALLEGRO_BITMAP *scroll;
+  ALLEGRO_EVENT_QUEUE *queue;
+  ALLEGRO_EVENT_SOURCE incoming;
+  ALLEGRO_MUTEX *mutex;
+  ALLEGRO_TIMER *timer;
+  int sw,sh;
+  int fw;
+  int fh;
+  int cx;
+  int cy;
+  char *charbuffer;
+} AllegroSet;
+
+int init_allegro(AllegroSet *aset)
+{
+  if(!al_init()) {
+     fprintf(stderr, "failed to initialize allegro!\n");
+     return 0;
+  }
+
+  al_install_keyboard();
+  al_install_mouse();
+  al_init_font_addon(); // initialize the font addon
+  al_init_ttf_addon();// initialize the ttf (True Type Font) addon
+  al_init_primitives_addon();
+  aset->sw = SCRW;
+  aset->sh = SCRH;
+
+  aset->display = al_create_display(aset->sw, aset->sh);
+  if(!aset->display) {
+     fprintf(stderr, "failed to create display!\n");
+     return 0;
+  }
+
+  aset->timer = al_create_timer(ALLEGRO_BPS_TO_SECS(40.0));
+  if(!aset->timer) {
+    fprintf(stderr, "Cannot create timer...\n");
+    return 0;
+  }
+/*  aset->scroll = al_create_bitmap(SCRW, SCRH);  */
+
+/*  aset->cx=0;*/
+/*  aset->cy=0;*/
+/*  aset->fw=16;*/
+/*  aset->fh=16;*/
+  aset->font = al_load_ttf_font("data/C64_Pro_Mono-STYLE.ttf",8,0 );
+
+  if(!aset->font){
+      fprintf(stderr, "Could not load 'C64_Pro_Mono-STYLE.ttf'.\n");
+      return 0;
+  }
+
+   aset->queue = al_create_event_queue();
+   if (!aset->queue) {
+      fprintf(stderr,"Error creating event queue\n");
+      return 0;
+   }
+  aset->mutex = al_create_mutex();
+  if(!aset->mutex) {
+      fprintf(stderr,"Error creating mutex\n");
+      return 0;  
+  }
+/*  al_init_user_event_source(&aset->incoming);*/
+/*  al_register_event_source(aset->queue, &aset->incoming);*/
+  al_register_event_source(aset->queue, al_get_keyboard_event_source());
+  al_register_event_source(aset->queue, al_get_mouse_event_source());
+  al_register_event_source(aset->queue, al_get_timer_event_source(aset->timer));
+
+  return 1;
+}
+
+
 DIALOG the_dialog[] =
 {
    /* (dialog proc)     (x)   (y)   (w)   (h) (fg)(bg) (key) (flags)     (d1) (d2)    (dp)                   (dp2) (dp3) */
@@ -427,13 +487,20 @@ DIALOG the_dialog[] =
 DATAFILE *datafile;
 void run_dialog()
 {
-	datafile = load_datafile("example.dat");
-	font = datafile[0].dat;
-	gui_fg_color = makecol(255, 255, 0);
-	gui_mg_color = makecol(128, 128, 0);
-	gui_bg_color = makecol(0, 0, 0);
+  gui_fg_color = al_map_rgb(255, 255, 0);
+  gui_mg_color = al_map_rgb(128, 128, 0);
+  gui_bg_color = al_map_rgb(0, 0, 63);
 
-	set_dialog_color (the_dialog, gui_fg_color, gui_bg_color);
-	do_dialog(the_dialog, 2);
+  set_dialog_color (the_dialog, gui_fg_color, gui_bg_color);
+
+  the_dialog[1].fg = al_map_rgb(255,255,255);
+  the_dialog[1].bg = al_map_rgb(255,0,0);
+
+  do_dialog(the_dialog, 2);
 }
 
+
+void run_gui()
+{
+  
+}

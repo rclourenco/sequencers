@@ -8,7 +8,7 @@
 #include <getopt.h>
 
 #include "seq.h"
-/*#include "gui.h"*/
+#include "seqgui.h"
 
 #define NUM_THREADS  3
 #define TCOUNT 10
@@ -562,7 +562,6 @@ void connect_midi(char *dir,char *devices[])
 	system(cmdline_buffer);
 }
 
-
 int main (int argc, char *argv[])
 {
   int i, rc;
@@ -643,19 +642,21 @@ int main (int argc, char *argv[])
   pthread_attr_init(&attr);
   pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 
-/*	allegro_init();*/
-/*	install_keyboard();*/
-/*	install_mouse(); */
-/*	set_gfx_mode (GFX_AUTODETECT_WINDOWED,800,600,0,0);*/
+  AllegroSet aset;
+  if(!init_allegro(&aset)) {
+    fprintf(stderr, "Error: Cannot init allegro\n");
+    exit(2);
+  }
+  init_gui(&aset);
 
   pthread_create(&threads[0], &attr, play_th, (void *)&sdata);
   pthread_create(&threads[1], &attr, midi_input_th, (void *)&sdata);
 //  pthread_create(&threads[2], &attr, inc_count, (void *)t3);
 
-	//run_dialog();
+	run_dialog();
 	//return 0;
 	int inp;
-	getchar();
+	//getchar();
 /*	while(inp=readkey() ) {
 		inp &= 0xff;
 		if(inp >= '0' && inp <= '9') {
