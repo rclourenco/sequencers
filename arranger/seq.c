@@ -10,7 +10,7 @@
 #include "seq.h"
 #include "seqgui.h"
 
-#define NUM_THREADS  3
+#define NUM_THREADS  2
 #define TCOUNT 10
 #define COUNT_LIMIT 12
 
@@ -18,7 +18,7 @@ int     count = 0;
 int     thread_ids[3] = {0,1,2};
 pthread_mutex_t count_mutex;
 pthread_cond_t count_threshold_cv;
-
+int shutdown = 0;
 
 
 SeqNote note_array[] = {
@@ -225,7 +225,7 @@ void *play_th(void *sdv)
 	o_usec_el = tp.tv_nsec/1000 + (tp.tv_sec%1000) * 1000000;
 
 
-	while(1) {
+	while(no_shutdown()) {
 		//printf("Play\n");
 		unsigned char ch;
 		unsigned char note;
@@ -386,6 +386,8 @@ void *play_th(void *sdv)
 			}
 		}
 	}
+	printf("Playing thread goes off...\n");
+	pthread_exit(NULL);
 }
 
 
@@ -562,6 +564,7 @@ void connect_midi(char *dir,char *devices[])
 	system(cmdline_buffer);
 }
 
+
 int main (int argc, char *argv[])
 {
   int i, rc;
@@ -654,9 +657,11 @@ int main (int argc, char *argv[])
 //  pthread_create(&threads[2], &attr, inc_count, (void *)t3);
 
 	run_dialog();
+	shutdown_allegro(&aset);
 	//return 0;
 	int inp;
-	//getchar();
+
+	printf("After get char...\n");
 /*	while(inp=readkey() ) {
 		inp &= 0xff;
 		if(inp >= '0' && inp <= '9') {
@@ -666,8 +671,11 @@ int main (int argc, char *argv[])
 		}
 	}
 */
-
+  //
   /* Wait for all threads to complete */
+  pthread_mutex_lock(&count_mutex);
+  shutdown = 1;
+  pthread_mutex_unlock(&count_mutex);
   for (i=0; i<NUM_THREADS; i++) {
     pthread_join(threads[i], NULL);
   }
@@ -677,8 +685,17 @@ int main (int argc, char *argv[])
   pthread_attr_destroy(&attr);
   pthread_mutex_destroy(&count_mutex);
   pthread_cond_destroy(&count_threshold_cv);
-  pthread_exit(NULL);
+/*  pthread_exit(NULL);*/
 
+  printf("Bye...\n");
 	return 0;
 }
 
+int no_shutdown()
+{
+  int a;
+  pthread_mutex_lock(&count_mutex);
+  a = !shutdown;
+  pthread_mutex_unlock(&count_mutex);
+  return a;
+}

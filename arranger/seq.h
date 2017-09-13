@@ -142,6 +142,10 @@ void *midi_input_th(void *sdv);
 
 /*parse_seq.c*/
 int parse_seq(char *filename, SeqSong *ss);
+int no_shutdown();
 
 extern SeqData sdata;
+extern int shutdown;
+
+
 #endif

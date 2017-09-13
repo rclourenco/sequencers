@@ -71,6 +71,7 @@ SongView songstatus, oldsongstatus;
 int status_update(int msg, DIALOG *d, int c)
 {
     char buffer[200];
+    ALLEGRO_BITMAP *temp;
 /*   time_t current_time;*/
 /*   struct tm *t;*/
 /*   BITMAP *temp;*/
@@ -79,7 +80,9 @@ int status_update(int msg, DIALOG *d, int c)
 		int ls = 28;
 		int lp = 1;
 
+    int yo = 6;
 
+    ALLEGRO_BITMAP *origbmp;
    /* process the message */
    switch (msg) {
 
@@ -90,19 +93,23 @@ int status_update(int msg, DIALOG *d, int c)
 		pthread_mutex_unlock(&count_mutex);
 /*		memcpy(&oldsongstatus,&songstatus,sizeof(SongView));*/
 
-	 /* draw the clock background onto a memory bitmap */
-/*	 temp = create_bitmap(d->w, d->h);*/
-/*	 clear_to_color(temp, d->bg);*/
+    temp = al_create_bitmap(d->w,d->h);
+    origbmp = al_get_target_bitmap();
+    al_set_target_bitmap(temp);
 
-	 /* store the clock background bitmap in d->dp */
-/*	 d->dp = temp;*/
-	 break;
+    al_clear_to_color(gui_mg_color);
+
+    al_set_target_bitmap(origbmp);
+    al_draw_bitmap(temp, d->x, d->y, 0);
+    /* store the clock background bitmap in d->dp */
+    d->dp = temp;
+   break;
 
       /* shutdown when we get an end message */
-      case MSG_END:
-	 /* destroy the clock background bitmap */
-/*	 destroy_bitmap(d->dp);*/
-	 break;
+    case MSG_END:
+   /* destroy the clock background bitmap */
+      al_destroy_bitmap(d->dp);
+    break;
 
       /* update the clock in response to idle messages */
       case MSG_IDLE:
@@ -111,214 +118,178 @@ int status_update(int msg, DIALOG *d, int c)
 		pthread_mutex_unlock(&count_mutex);
 		if( memcmp(&oldsongstatus,&songstatus, sizeof(SongView)) ) {
 			memcpy(&oldsongstatus,&songstatus,sizeof(SongView));
-			/* Redraw ourselves if the time has changed. Note that the dialog
-			 * manager automatically turns off the mouse pointer whenever a
-			 * MSG_DRAW message is sent to an individual object or an entire
-			 * dialog, so we don't have to do it explicitly. Also note the use
-			 * of the object_message function rather than a simple recursive
-			 * call to clock_proc(). This vectors the call through the function
-			 * pointer in the dialog object, which allows other object
-			 * procedures to hook it, for example a different type of clock
-			 * could process the draw messages itself but pass idle messages
-			 * on to this procedure.
-			 */
 		    object_message(d, MSG_DRAW, 0);
 		 }
 	 break;
 
       /* draw the clock in response to draw messages */
       case MSG_DRAW:
-		#define CL (ls*lp)
-		#define NL (ls*lp++)
-		#define COL1 5
-		#define COL2 300
-		#define FL()   lp=1
+      origbmp = al_get_target_bitmap();
+      al_set_target_bitmap(d->dp);
 
-	 /* draw onto a temporary memory bitmap to prevent flicker */
-	  al_draw_filled_rectangle(d->x, d->y, d->w, d->h, d->bg);
-	  al_draw_rectangle(d->x, d->y, d->w, d->h, d->fg, 1.0);
+      #define CL (ls*lp)
+      #define NL ((ls*lp++))
+      #define COL1 8
+      #define COL2 300
+      #define FL()   lp=1
+
+      al_clear_to_color(d->bg);
+/*	 /* draw onto a temporary memory bitmap to prevent flicker */
+/*	  al_draw_filled_rectangle(d->x, d->y, d->w, d->h, d->bg);*/
+      al_draw_rectangle(1, 1, d->w-1, d->h-1, d->fg, 1.5);
 
     sprintf(buffer, "Song name:        %s", songstatus.song_name);
-    al_draw_text(algui.font, al_map_rgb(255,0,200), COL1, NL, 0,buffer);
-
-/*		textprintf_ex(temp, font, COL1, NL, makecol(255, 0, 200),*/
-/*		                -1, "Song name:        %s", songstatus.song_name);*/
+    al_draw_text(algui.font, al_map_rgb(255,0,200), COL1, NL+yo, 0,buffer);
 
 		if(songstatus.playstatus == STOP) {
-/*			textprintf_ex(temp, font, COL1, NL, makecol(255, 0, 0),*/
-/*		                -1, "STOP");*/
-      al_draw_text(algui.font, al_map_rgb(255,0, 0), COL1, NL, 0, "STOP");
+      al_draw_text(algui.font, al_map_rgb(255,0, 0), COL1, NL+yo, 0, "STOP");
 		}
 		else if(songstatus.playstatus == PLAY ) {
-/*			textprintf_ex(temp, font, COL1, NL, makecol(0, 255, 0),*/
-/*		                -1, "PLAYING");*/
-      al_draw_text(algui.font, al_map_rgb( 0, 255, 0), COL1, NL, 0, "PLAYING");
+      al_draw_text(algui.font, al_map_rgb( 0, 255, 0), COL1, NL+yo, 0, "PLAYING");
 		}
 
 		NL;
-/*			textprintf_ex(temp, font, COL1, CL, makecol(255, 255, 255),*/
-/*		                -1, "CS: %d",	songstatus.state);*/
 
       sprintf(buffer,"CS: %d",	songstatus.state);
-      al_draw_text(algui.font, al_map_rgb( 255, 255, 255), COL1, CL, 0, buffer);
+      al_draw_text(algui.font, al_map_rgb( 255, 255, 255), COL1, CL+yo, 0, buffer);
 
-/*			textprintf_ex(temp, font, COL2, CL, makecol(255, 255, 255),*/
-/*		                -1, "NEXT: %d",	songstatus.next >= 0 ? songstatus.next : 	songstatus.defaultnext);*/
             sprintf(buffer,"NEXT: %d",	songstatus.next >= 0 ? songstatus.next : 	songstatus.defaultnext);
-            al_draw_text(algui.font, al_map_rgb( 255, 255, 255), COL2, CL, 0, buffer);
+            al_draw_text(algui.font, al_map_rgb( 255, 255, 255), COL2, CL+yo, 0, buffer);
 
 
-		int frag = songstatus.seqs[songstatus.cur_group].frag;
-		int div = songstatus.seqs[songstatus.cur_group].div;
-		if(div == 0)
-			div = 1;
-		int beats = songstatus.seqs[songstatus.cur_group].frag / div;
-		if(beats == 0)
-			beats = 1;
+    int frag = songstatus.seqs[songstatus.cur_group].frag;
+    int div = songstatus.seqs[songstatus.cur_group].div;
+    if(div == 0)
+      div = 1;
+    int beats = songstatus.seqs[songstatus.cur_group].frag / div;
+    if(beats == 0)
+      beats = 1;
 
-		int bars  = songstatus.seqs[songstatus.cur_group].notes_n / (beats * div);
-		int notes = songstatus.seqs[songstatus.cur_group].notes_n;
+    int bars  = songstatus.seqs[songstatus.cur_group].notes_n / (beats * div);
+    int notes = songstatus.seqs[songstatus.cur_group].notes_n;
 
-		int pos  = songstatus.seqs[songstatus.cur_group].note_p;
-		int beat = (pos / div) % beats;
-		int bar  = (pos/div) / beats;
-		int bt   = (pos/div);
-		int bts  = notes/div;
-		
-		int dx = 160;
-		int dim = 770-dx;
-		
-		int beatp    = ( (beat+1) * dim)/beats;
-		int beatp0   = (beat * dim)/beats;
+    int pos  = songstatus.seqs[songstatus.cur_group].note_p;
+    int beat = (pos / div) % beats;
+    int bar  = (pos/div) / beats;
+    int bt   = (pos/div);
+    int bts  = notes/div;
 
-		int barp  = ((bar+1) * dim)/bars;
-		int barp0  = (bar * dim)/bars;
-		int barm = (barp + barp0)/2;
+    int dx = 160;
+    int dim = 770-dx;
 
-		int posp  = ((pos+1) * dim)/notes;
-		int posp0  = (pos * dim)/notes;
-		int posm = (posp + posp0)/2;
+    int beatp    = ( (beat+1) * dim)/beats;
+    int beatp0   = (beat * dim)/beats;
 
-		int btp  = ( (bt+1) * dim)/bts;
-		int btp0  = (bt * dim)/bts;
-		int btm = (btp + btp0)/2;
+    int barp  = ((bar+1) * dim)/bars;
+    int barp0  = (bar * dim)/bars;
+    int barm = (barp + barp0)/2;
+
+    int posp  = ((pos+1) * dim)/notes;
+    int posp0  = (pos * dim)/notes;
+    int posm = (posp + posp0)/2;
+
+    int btp  = ( (bt+1) * dim)/bts;
+    int btp0  = (bt * dim)/bts;
+    int btm = (btp + btp0)/2;
 
 
 
-		NL;
+    NL;
 
-		al_draw_rectangle(dx-1, lp*ls+3, dx+dim+1, (lp+1)*ls-3,al_map_rgb(255, 255, 255), 1.0);
-		al_draw_rectangle(dx-1, (lp+1)*ls+3, dx+dim+1, (lp+2)*ls-3,al_map_rgb(255, 255, 255),1.0);
+    al_draw_rectangle(dx-1, lp*ls+3, dx+dim+1, (lp+1)*ls-3,al_map_rgb(255, 255, 255), 1.0);
+    al_draw_rectangle(dx-1, (lp+1)*ls+3, dx+dim+1, (lp+2)*ls-3,al_map_rgb(255, 255, 255),1.0);
 
-		al_draw_filled_rectangle(dx+beatp0, lp*ls+4, dx+beatp, (lp+1)*ls-4,al_map_rgb(255, 255,0));
+    al_draw_filled_rectangle(dx+beatp0, lp*ls+4, dx+beatp, (lp+1)*ls-4,al_map_rgb(255, 255,0));
 
 
     sprintf(buffer, "Beat: %4d/%-4d", beat+1,beats);
-    al_draw_text(algui.font, al_map_rgb( 255, 0, 200), COL1, NL, 0, buffer);
+    al_draw_text(algui.font, al_map_rgb( 255, 0, 200), COL1, NL+yo, 0, buffer);
 
-/*		textprintf_ex(temp, font, COL1, NL, makecol(255, 0, 200),*/
-/*		                -1, "Beat: %4d/%-4d", beat+1,beats);*/
 
-		al_draw_filled_rectangle(dx+barm-2, lp*ls+6, dx+barm+2, lp*ls+10,     al_map_rgb(255, 0, 0));
-		al_draw_filled_rectangle(dx+btm-2, lp*ls+12, dx+btm+2, lp*ls+16,      al_map_rgb(0, 255, 0));
-		al_draw_filled_rectangle(dx+posm-2, lp*ls+18, dx+posm+2, (lp+1)*ls-6, al_map_rgb(0, 0, 255));
+    al_draw_filled_rectangle(dx+barm-2, lp*ls+6, dx+barm+2, lp*ls+10,     al_map_rgb(255, 0, 0));
+    al_draw_filled_rectangle(dx+btm-2, lp*ls+12, dx+btm+2, lp*ls+16,      al_map_rgb(0, 255, 0));
+    al_draw_filled_rectangle(dx+posm-2, lp*ls+18, dx+posm+2, (lp+1)*ls-6, al_map_rgb(0, 0, 255));
 
     sprintf(buffer, "Bar:  %4d/%-4d", bar+1,bars);
-    al_draw_text(algui.font, al_map_rgb( 255, 0, 200), COL1, NL, 0, buffer);
+    al_draw_text(algui.font, al_map_rgb( 255, 0, 200), COL1, NL+yo, 0, buffer);
 
 
-/*		textprintf_ex(temp, font, COL1, NL, makecol(255, 0, 200),*/
-/*		                -1, "Bar:  %4d/%-4d", bar+1,bars);*/
 
-		lp++;
-		int startline = lp*ls;
-		al_draw_text(algui.font, al_map_rgb( 0, 0, 160), COL1, NL, 0,
-		 " Sequence          Voices     BPM    Beats    Bars    Next    Trigger  ");
-/*		textprintf_ex(temp, font, COL1, NL, makecol(255, 255, 255),*/
-/*		                makecol(0,0,160), */
-/*			" Sequence          Voices     BPM    Beats    Bars    Next    Trigger  ",*/
-/*		 pos);*/
-		int midline = lp*ls;
-		int i;
-		for( i=0; i<songstatus.group_count; i++ )
-		{
-			ALLEGRO_COLOR color;
-			int bg;
+    lp++;
+    int startline = lp*ls;
+    al_draw_text(algui.font, al_map_rgb( 0, 0, 160), COL1, NL+yo, 0,
+     " Sequence          Voices     BPM    Beats    Bars    Next    Trigger  ");
 
-			int line = NL;
+    int midline = lp*ls;
+    int i;
+    for( i=0; i<songstatus.group_count; i++ )
+    {
+      ALLEGRO_COLOR color;
+      int bg;
 
-			if( i == songstatus.cur_group ) {
-				
-				color = al_map_rgb(255, 255, 255);
-				al_draw_filled_rectangle(5, line, 645, line+ls,al_map_rgb(0, 160, 0));
-			}
-			else {
-				color = al_map_rgb(0, 160, 0);
-			}
-			
-			int frag = songstatus.seqs[i].frag;
-			int div = songstatus.seqs[i].div;
-			if(div == 0)
-				div = 1;
-			int beats = songstatus.seqs[i].frag / div;
-			if(beats == 0)
-				beats = 1;
+      int line = NL;
 
-			int bars  = songstatus.seqs[i].notes_n / (beats * div);
+      if( i == songstatus.cur_group ) {
+
+        color = al_map_rgb(255, 255, 255);
+        al_draw_filled_rectangle(COL1, line, 645, line+ls,al_map_rgb(0, 160, 0));
+      }
+      else {
+        color = al_map_rgb(0, 160, 0);
+      }
+
+      int frag = songstatus.seqs[i].frag;
+      int div = songstatus.seqs[i].div;
+      if(div == 0)
+        div = 1;
+      int beats = songstatus.seqs[i].frag / div;
+      if(beats == 0)
+        beats = 1;
+
+      int bars  = songstatus.seqs[i].notes_n / (beats * div);
 
         sprintf(buffer, " Seq.  %5d",i);
-        al_draw_text(algui.font,color, 5, line, 0, buffer);
-/*			textprintf_ex(temp, font, 5, line, color,*/
-/*		                -1," Seq.  %5d",i);*/
+        al_draw_text(algui.font,color, COL1, line+yo, 0, buffer);
 
         sprintf(buffer, " %9d",songstatus.seqs[i].seq_count);
-        al_draw_text(algui.font, color, 150, line, 0, buffer);
-/*			textprintf_ex(temp, font, 150, line, color,*/
-/*		                -1," %9d",songstatus.seqs[i].seq_count);*/
+        al_draw_text(algui.font, color, 150, line+yo, 0, buffer);
+
         sprintf(buffer, " %7d",songstatus.seqs[i].bpm);
-        al_draw_text(algui.font, color, 246, line, 0, buffer);
-/*			textprintf_ex(temp, font, 246, line, color,*/
-/*		                -1," %7d",songstatus.seqs[i].bpm);*/
+        al_draw_text(algui.font, color, 246, line+yo, 0, buffer);
+
         sprintf(buffer, " %5d",beats);
-        al_draw_text(algui.font, color, 326, line, 0, buffer);
-/*			textprintf_ex(temp, font, 326, line, color,*/
-/*		               -1," %5d",beats);*/
+        al_draw_text(algui.font, color, 326, line+yo, 0, buffer);
+
         sprintf(buffer, " %5d",bars);
-        al_draw_text(algui.font, color, 405, line, 0, buffer);
-/*			textprintf_ex(temp, font, 405, line, color,*/
-/*		                -1," %5d",bars);*/
+        al_draw_text(algui.font, color, 405, line+yo, 0, buffer);
+
         sprintf(buffer, " %s","<=0=>");
-        al_draw_text(algui.font, color, 475, line, 0, buffer);
-/*			textprintf_ex(temp, font, 475, line, color,*/
-/*		                -1," %s","<=0=>");*/
+        al_draw_text(algui.font, color, 475, line+yo, 0, buffer);
+
         sprintf(buffer, " < %d >",i);
-        al_draw_text(algui.font, color, 548, line, 0, buffer);
-/*			textprintf_ex(temp, font, 548, line, color,*/
-/*		                -1," < %d >",i);*/
+        al_draw_text(algui.font, color, 548, line+yo, 0, buffer);
 
 //			" Sequence          Voices     BPM    Beats    Bars    Next    Trigger
 		}
 
 		int endline = lp*ls;
 		ALLEGRO_COLOR white = al_map_rgb(255,255,255);
-		al_draw_line(5,startline,645,startline,    white,1.0);
-		al_draw_line(5,midline,645,midline,        white,1.0);
-		al_draw_line(5,   startline, 5,   endline, white,1.0);
-		al_draw_line(150, startline, 150, endline, white,1.0);
-		al_draw_line(246, startline, 246, endline, white,1.0);
-		al_draw_line(326, startline, 326, endline, white,1.0);
-		al_draw_line(405, startline, 405, endline, white,1.0);
-		al_draw_line(475, startline, 475, endline, white,1.0);
-		al_draw_line(548, startline, 548, endline, white,1.0);
-		al_draw_line(645, startline, 645, endline, white,1.0);
-		al_draw_line(5,   endline,   645, endline, white,1.0);
+		al_draw_line(COL1, startline,  645, startline, white, 1.0);
+		al_draw_line(COL1, midline,    645, midline,   white, 1.0);
+		al_draw_line(COL1, startline, COL1, endline,   white, 1.0);
+		al_draw_line(150,  startline,  150, endline,   white, 1.0);
+		al_draw_line(246,  startline,  246, endline,   white, 1.0);
+		al_draw_line(326,  startline,  326, endline,   white, 1.0);
+		al_draw_line(405,  startline,  405, endline,   white, 1.0);
+		al_draw_line(475,  startline,  475, endline,   white, 1.0);
+		al_draw_line(548,  startline,  548, endline,   white, 1.0);
+		al_draw_line(645,  startline,  645, endline,   white, 1.0);
+		al_draw_line(COL1, endline,    645, endline,   white, 1.0);
 
-/*		 blit(temp, screen, 0, 0, d->x, d->y, d->w, d->h);*/
-/*		*/
-/*	*/
+    al_set_target_bitmap(origbmp);
+    al_draw_bitmap(d->dp, d->x, d->y, 0);
 
-/*	 destroy_bitmap(temp);*/
-	 break; 
+    break; 
    }
 
    /* always return OK status, since the clock doesn't ever need to close 
@@ -362,7 +333,7 @@ int init_allegro(AllegroSet *aset)
 /*  aset->cy=0;*/
 /*  aset->fw=16;*/
 /*  aset->fh=16;*/
-  aset->font = al_load_ttf_font("data/C64_Pro_Mono-STYLE.ttf",8,0 );
+  aset->font = al_load_ttf_font("/usr/share/fonts/truetype/freefont/FreeMonoBold.ttf",15,0 );
 
   if(!aset->font){
       fprintf(stderr, "Could not load 'C64_Pro_Mono-STYLE.ttf'.\n");
@@ -388,6 +359,12 @@ int init_allegro(AllegroSet *aset)
   return 1;
 }
 
+void shutdown_allegro(AllegroSet *aset)
+{
+  printf("Shutting Down...\n");
+  al_destroy_event_queue(aset->queue);
+  al_uninstall_system();
+}
 
 
 void init_gui(AllegroSet *aset)
@@ -412,7 +389,7 @@ DIALOG the_dialog[] =
    { d_clear_proc,        0,   0,    0,    0,    {},   {},    0,      0,       0,   0,    NULL,                   NULL, NULL  },
    { d_ctext_proc,        0,   0,    800,    40, {},   {},    0,      0,       0,   0,    (void*)"The Savage Sequencer",  NULL, NULL  },
    { d_button_proc,     328,   560, 160,   24,   {},   {}, 0, D_EXIT,       0,   0,    (void*)"Close",         NULL, NULL  },
-   { status_update,       10,  40,  790,  400,  WHITE, {},    0,    0,       0,   0,    NULL,          NULL, NULL  },
+   { status_update,       10,  40,  780,  500,  WHITE, {},    0,    0,       0,   0,    NULL,          NULL, NULL  },
    { d_yield_proc,        0,   0,    0,    0,   {},    {},    0,      0,       0,   0,    NULL,                   NULL, NULL  },
    { NULL,                0,   0,    0,    0,   {},    {},    0,      0,       0,   0,    NULL,                   NULL, NULL  }
 };
@@ -433,13 +410,17 @@ DIALOG the_dialog[] =
 void run_dialog()
 {
   gui_fg_color = al_map_rgb(255, 255, 0);
-  gui_mg_color = al_map_rgb(128, 128, 0);
+  gui_mg_color = al_map_rgb(128, 128, 128);
   gui_bg_color = al_map_rgb(0, 0, 63);
 
   set_dialog_color (the_dialog, gui_fg_color, gui_bg_color);
 
   the_dialog[1].fg = al_map_rgb(255,255,255);
   the_dialog[1].bg = al_map_rgb(255,0,0);
+
+  the_dialog[3].fg = al_map_rgb(0,255,255);
+  the_dialog[3].bg = al_map_rgb(0,0,0);
+
 
   do_dialog(the_dialog, 2);
 }

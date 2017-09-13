@@ -29,5 +29,6 @@ typedef struct {
 int init_allegro(AllegroSet *aset);
 void run_dialog();
 void init_gui(AllegroSet *aset);
+void shutdown_allegro(AllegroSet *aset);
 
 #endif

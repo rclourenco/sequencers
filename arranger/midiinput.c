@@ -173,7 +173,7 @@ void *midi_input_th(void *sdv)
 	}
 */
 
-	while(1) {
+	while(no_shutdown()) {
 
 			unsigned short revents;
 			unsigned char ch;
@@ -198,6 +198,8 @@ void *midi_input_th(void *sdv)
 				}
 			/*}*/
 	}
+	printf("Midi thread goes off...\n");
+	pthread_exit(NULL);
 }
 
 
