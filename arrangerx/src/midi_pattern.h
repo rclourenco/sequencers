@@ -88,5 +88,6 @@ typedef struct {
   MidiEventNode *current;
 } TrackParser;
 
+int parse_track(TrackParser *tp);
 
 #endif

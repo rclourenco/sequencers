@@ -3,6 +3,7 @@
 #include <string.h>
 #include <time.h>
 #include <signal.h>
+#include <panel.h>
 #include "midi_pattern.h"
 #include "../../midi_lib/midi_lib.h"
 
@@ -397,7 +398,7 @@ int parse_track(TrackParser *tp) {
           if( ! new_event_node(tp, type) ) {
             fprintf(stderr, "Cannot alloc Event memory\n");
             tp->status = StatusError;
-            return;
+            return 0;
           }
         }
       }
@@ -409,7 +410,7 @@ int parse_track(TrackParser *tp) {
         else {
           if(! new_event_node(tp, meCVRunning) ) {
             tp->status = StatusError;
-            return;
+            return 0;
           }
           store_event_data(tp, tp->ch);
           if(tp->datalen == 0) {
@@ -440,7 +441,7 @@ int parse_track(TrackParser *tp) {
           if(! new_event_node(tp, meSysex) ) {
             fprintf(stderr, "Cannot alloc Event memory\n");
             tp->status = StatusError;
-            return;
+            return 0;
           }
           tp->status = StatusSysexData;
         }
@@ -462,7 +463,7 @@ int parse_track(TrackParser *tp) {
         if(! new_event_node(tp, meMeta) ) {
           fprintf(stderr, "Cannot alloc Event memory\n");
           tp->status = StatusError;
-          return;
+          return 0;
         }
 
         if( tp->datalen) {
@@ -498,6 +499,7 @@ int parse_track(TrackParser *tp) {
       }
     break;
   }
+  return 0;
 }
 
 
@@ -677,16 +679,23 @@ void rewind_pattern(MidiPattern *pat)
 
 }
 
+WINDOW
+	*player_win = NULL,
+	*pattern_win = NULL;
+PANEL
+	*player_panel = NULL,
+	*pattern_panel = NULL;
+
 void playing_loop(MidiPattern *pat)
 {
   if(pat->ticks_quarter == 0) {
-    printf("Cannot play MIDI Files with SMTPE timing");
+    mvwprintw(player_win, 3, 2, "Cannot play MIDI Files with SMTPE timing\n"); wrefresh(player_win);
     return;
   }
   unsigned long quarter_interval = 500000;
   if(pat->tempo)
     quarter_interval = pat->tempo;
-  printf("Quarter Interval %lu\n", quarter_interval);
+  mvwprintw(player_win, 3, 2, "Quarter Interval %8lu", quarter_interval); wrefresh(player_win);
   unsigned long ticks_interval = quarter_interval/pat->ticks_quarter;
 
   struct timespec tp;
@@ -718,10 +727,11 @@ void playing_loop(MidiPattern *pat)
 
     unsigned long adiff2 = (tick+1)*ticks_interval;
     unsigned long secs = adiff/1000000;
-    
+
     if( osec != secs ) {
-      printf("\rBPM: %lu, Time: %02u:%02u:%02u", 60000000L/quarter_interval, (unsigned int)(secs/3600)%24,(unsigned int) (secs/60)%60, (unsigned int)secs%60);
-      fflush(stdout);
+      mvwprintw(player_win, 4, 2, "BPM: %3lu, Time: %02u:%02u:%02u", 60000000L/quarter_interval, (unsigned int)(secs/3600)%24,(unsigned int) (secs/60)%60, (unsigned int)secs%60);
+      wrefresh(player_win);
+      //fflush(stdout);
       osec = secs;
     }
     if(done)
@@ -729,7 +739,8 @@ void playing_loop(MidiPattern *pat)
     usleep(adiff2-adiff);
   }
 
-  printf("\nDone.\n\n");
+//  mvwprintw(player_win, 5, 2, "Done.");
+  wrefresh(player_win);
 }
 
 void midi_reset()
@@ -782,13 +793,53 @@ void terminate_handler(int n)
 int totalpatterns = 0;
 MidiPattern *list[MAXPATTERNS];
 
-main(int argc, char **argv)
+void apshutdown();
+
+void apshutdown()
+{
+	if (player_win != NULL)
+		delwin(player_win);
+	endwin();
+	return;
+}
+
+WINDOW *create_player_window()
+{
+	player_win = newwin(8, 40, 10, 10);
+	//box(player_win, 0 , 0);
+
+	wborder(player_win, '|', '|', '-', '-', '+', '+', '+', '+');
+	wrefresh(player_win);
+
+	player_panel = new_panel(player_win);
+	return player_win;
+}
+
+WINDOW *create_pattern_window()
+{
+	pattern_win = newwin(8, 40, 1, 1);
+	//box(player_win, 0 , 0);
+
+	wborder(pattern_win, '|', '|', '-', '-', '+', '+', '+', '+');
+	wrefresh(pattern_win);
+
+	pattern_panel = new_panel(pattern_win);
+	return pattern_win;
+}
+
+int load_config();
+
+int main(int argc, char **argv)
 {
   if( argc < 2) {
     return 1;
   }
   char *ext = NULL;
   int error=0;
+
+  load_config();
+  getchar();
+
   if( (ext = rindex(argv[1],'.')) && !strcasecmp(ext, ".txt" )) {
     printf("List %s\n", argv[1]);
     FILE *fp;
@@ -838,10 +889,153 @@ main(int argc, char **argv)
   signal(SIGINT, terminate_handler);
   signal(SIGHUP, terminate_handler);
   atexit(midi_panic);
+
+  initscr();
+  atexit(apshutdown);
+
+  create_pattern_window();
+  create_player_window();
+  update_panels();
+  doupdate();
+
+  hide_panel(player_panel);
   int i;
+
   for(i=0;i<totalpatterns;i++) {
-    printf("Playing %s\n", list[i]->filename);
+  	mvwprintw(pattern_win, i+1, 2, "%-30s", list[i]->filename);
+	wrefresh(pattern_win);
+  }
+
+  getch();
+
+  show_panel(player_panel);
+
+  for(i=0;i<totalpatterns;i++) {
+    doupdate();
+    mvwprintw(player_win, 2, 2, "Playing %-25s", list[i]->filename);
+    wrefresh(player_win);
     rewind_pattern(list[i]);
     playing_loop(list[i]);
   }
+  mvwprintw(player_win, 5, 2, "Done!");
+  wrefresh(player_win);
+
+  getch();
+  hide_panel(player_panel);
+
+}
+
+
+
+int readline(FILE *fp, char *buffer, int max);
+
+// if value is NULL is a section
+typedef int (*ini_token_func)(void *data, char *key, char *value);
+
+int ini_parse(char *filename, void *data, ini_token_func itf);
+
+typedef struct {
+	char *midiout;
+	char *songs;
+} MidiBoxConfig;
+
+struct _config_loader {
+	int current_section;
+	MidiBoxConfig *cfg;
+};
+
+int config_setter(void *data, char *key, char *value)
+{
+	if (key==NULL)
+		return 0;
+
+	if (value==NULL)
+	{
+		printf("Config Section: %s\n", key);
+		return 0;
+	}
+
+	printf("Config Key: %s => Value %s\n", key, value);
+	return 0;
+}
+
+int load_config()
+{
+	return ini_parse("midibox.conf", NULL, config_setter);
+}
+
+int ini_parse(char *filename, void *data, ini_token_func itf)
+{
+	char buffer[80];
+	FILE *fp = fopen(filename, "rt");
+	if (!fp)
+		return -2;
+	while(!feof(fp)) {
+		if (!readline(fp, buffer, 80)) {
+			continue;
+		}
+		int i=0;
+		printf("%s\n", buffer);
+		while(buffer[i]==' ') i++;
+		if (buffer[i]=='#')
+			continue;
+		if (buffer[i]=='[') {
+			i++;
+			while(buffer[i]==' ') i++;
+			int sf = i;
+			while(buffer[sf] && buffer[sf]!=']') sf++;
+			while(sf>i && buffer[sf-1]==' ') sf--;
+			buffer[sf]='\0';
+			char *section = &buffer[i];
+			if (itf)
+				itf(data, section, NULL);
+			continue;
+		}
+		if (!buffer[i])
+			continue;
+
+		int kf = i;
+		while(buffer[kf]!='=' && buffer[kf]) kf++;
+		if (!buffer[kf]) {
+			printf("Error @ %s\n", buffer);
+			continue;
+		}
+		int vi = kf+1;
+
+		while(kf>0 && buffer[kf-1]==' ') kf--;
+		if (kf == 0) {
+			printf("Error @ %s\n", buffer);
+			continue;
+		}
+
+		while(buffer[vi]==' ') vi++;
+
+		int vf = vi;
+		while(buffer[vf]) vf++;
+
+		while(vf>vi && buffer[vf-1]==' ') vf--;
+
+		buffer[kf] = '\0';
+		buffer[vf] = '\0';
+		char *key = &buffer[i];
+		char *value = &buffer[vi];
+
+		if (itf)
+			itf(data, key, value);
+	}
+	fclose(fp);
+}
+
+int readline(FILE *fp, char *buffer, int max)
+{
+	int l=0;
+	char ch;
+	if (max<1)
+		return 0;
+	max--;
+        while( (ch=fgetc(fp)) != '\n' && ch != EOF ) {
+          if(l<max) buffer[l++] = ch;
+        }
+	buffer[l]='\0';
+	return l;
 }

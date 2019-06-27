@@ -4,6 +4,8 @@
 
 MidiDriver *midi_driver_default;
 
+int midi_init_alsa(MidiDriver **mididriver_p, const char *device_in, const char *device_out);
+
 void midi_out_f_dummy(MidiDriver *md, const char *msg, size_t len) {
 /*  fprintf(stderr, "[DEBUG] Received midi msg len %u\n", len);*/
 }
