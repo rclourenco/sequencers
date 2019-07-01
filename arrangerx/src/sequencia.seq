@@ -1,0 +1,22 @@
+# example song
+# 
+
+songname = example
+
+[intro]
+filename=song000/intro.mid
+
+[part 1]
+filename=song000/part1.mid
+
+[part 2]
+filename=song000/part2.mid
+
+[part 3]
+filename=song000/part3.mid
+
+[part 4]
+filename=song000/part4.mid
+
+[coda]
+filename=song000/end.mid

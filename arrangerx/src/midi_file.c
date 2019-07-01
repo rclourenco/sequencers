@@ -4,8 +4,15 @@
 #include <time.h>
 #include <signal.h>
 #include <panel.h>
+#include "iniparser.h"
 #include "midi_pattern.h"
 #include "../../midi_lib/midi_lib.h"
+
+
+typedef struct {
+	char *midiout;
+	char *songs;
+} MidiBoxConfig;
 
 volatile sig_atomic_t a;
 
@@ -517,6 +524,49 @@ void dump_pattern(MidiPattern *pat)
   }
 }
 
+void midi_tracknode_free(MidiTrackNode **track_r);
+
+void midi_pattern_free(MidiPattern **pat_r) 
+{
+	MidiPattern *pat;
+	if (pat_r==NULL)
+		return;
+	pat = *pat_r;
+	if (pat==NULL)
+		return;
+
+	MidiTrackNode *track = pat->tracks;
+
+	while (track) {
+		MidiTrackNode *tnext = track->next;
+		midi_tracknode_free(&track);
+		track = tnext;
+	}
+
+	free(pat);
+	*pat_r = NULL;
+}
+
+void midi_tracknode_free(MidiTrackNode **track_r)
+{
+	MidiTrackNode *track;
+	if (track_r==NULL)
+		return;
+	track = *track_r;
+	if (track==NULL)
+		return;
+
+	MidiEventNode *event = track->events;
+	while (event) {
+		MidiEventNode *enext = event->next;
+		free(event);
+		event = enext;
+	}
+
+	free(track);
+	*track_r = NULL;
+}
+
 MidiPattern *midi_pattern_load(char *filename)
 {
   FILE *fp;
@@ -527,8 +577,9 @@ MidiPattern *midi_pattern_load(char *filename)
   }
 
   MidiPattern *pat = (MidiPattern *)malloc(sizeof(MidiPattern));
-
   if( pat ) {
+    memset(pat, 0, sizeof(MidiPattern));
+
     MidiPrefix mp;
     MidiHeader mh;
 
@@ -557,13 +608,13 @@ MidiPattern *midi_pattern_load(char *filename)
       }
       else if( !strcmp(mp.type,"MTrk") ) {
         MidiTrackNode *new = (MidiTrackNode *)malloc(sizeof(MidiTrackNode));
-        if(new) {
+        if (new) {
           MidiEventNode *first = read_track(fp, mp.length);
-          if( first ) {
+          if (first) {
             new->events = first;
             new->playing = NULL;
             new->next    = NULL;
-            if( current ) {
+            if ( current ) {
               current->next = new;
             }
             current = new;
@@ -572,6 +623,7 @@ MidiPattern *midi_pattern_load(char *filename)
             }
             parsed_tracks++;
           } else {
+	    midi_tracknode_free(&new);
             printf("Error importing track...\n");
             break;
           }
@@ -586,9 +638,7 @@ MidiPattern *midi_pattern_load(char *filename)
     }
 
     if( expected_tracks != parsed_tracks ) {
-      /*TODO free pattern memory */
-      free(pat);
-      pat = NULL;
+   	midi_pattern_free(&pat);
     }
   }
 
@@ -602,7 +652,7 @@ void meta_midi_event(MidiEventNode *en, MidiPattern *pat)
     return;
   if(en->t.meta.type == 0x51 && en->t.meta.length == 3) {
     pat->tempo = (en->data[0]<<16)+(en->data[1]<<8)+en->data[2];
-    printf("Tempo Change Request: %d %d %d => %lu\n", en->data[0], en->data[1], en->data[2], pat->tempo);
+//    printf("Tempo Change Request: %d %d %d => %lu\n", en->data[0], en->data[1], en->data[2], pat->tempo);
   }
 }
 
@@ -697,9 +747,10 @@ void playing_loop(MidiPattern *pat)
     quarter_interval = pat->tempo;
   mvwprintw(player_win, 3, 2, "Quarter Interval %8lu", quarter_interval); wrefresh(player_win);
   unsigned long ticks_interval = quarter_interval/pat->ticks_quarter;
+  mvwprintw(player_win, 6, 2, "Ticks Interval %8lu", ticks_interval); wrefresh(player_win);
 
   struct timespec tp;
-  unsigned long usec_el, o_usec_el,adiff;
+  unsigned long usec_el=0, o_usec_el=0,adiff=0, o_adiff=0, m_adiff=0;
 
   clock_gettime(CLOCK_REALTIME, &tp);
   o_usec_el = tp.tv_nsec/1000 + (tp.tv_sec%1000) * 1000000;
@@ -707,36 +758,75 @@ void playing_loop(MidiPattern *pat)
   unsigned long i;
   unsigned long osec = 10000;
   int done = 0;
+  unsigned long otick = 0, m_otick=0;
+  unsigned long btick = 0;
+  int first = 1;
+  int bref = 0;
   while(!done)
   {
     clock_gettime(CLOCK_REALTIME, &tp);
     usec_el = tp.tv_nsec/1000 + (tp.tv_sec%1000) * 1000000;
-    if(usec_el < o_usec_el)
-      adiff = abs(1000000000+usec_el - o_usec_el);
-    else
-      adiff = abs(usec_el - o_usec_el);
+    if (first) {
+	    o_usec_el = usec_el;
+	    adiff = 0;
+	    first = 0;
+    }
+    else {
+    	if(usec_el < o_usec_el)
+      		adiff = abs(1000000000+usec_el - o_usec_el);
+    	else
+      		adiff = abs(usec_el - o_usec_el);
+    }
 
-    unsigned long tick = adiff/ticks_interval;
+    unsigned long tick = adiff/ticks_interval+btick;
+    unsigned long adiff_r = (tick-btick) * ticks_interval;
+
+    unsigned long adiff2 = (tick+1)*ticks_interval;
 
     done = play_pattern(pat,tick);
+
+    unsigned long secs = (adiff+bref)/1000000;
 
     if(pat->tempo && pat->tempo != quarter_interval) {
       quarter_interval = pat->tempo;
       ticks_interval = quarter_interval/pat->ticks_quarter;
+      // rebase
+      o_usec_el = usec_el;
+      btick = tick;
+      bref += adiff;
+      mvwprintw(player_win, 6, 2, "Ticks Interval %8lu => %8ld ", ticks_interval, adiff-adiff_r); wrefresh(player_win);
     }
 
-    unsigned long adiff2 = (tick+1)*ticks_interval;
-    unsigned long secs = adiff/1000000;
+    //unsigned long adiff2 = (tick+1)*ticks_interval;
 
     if( osec != secs ) {
-      mvwprintw(player_win, 4, 2, "BPM: %3lu, Time: %02u:%02u:%02u", 60000000L/quarter_interval, (unsigned int)(secs/3600)%24,(unsigned int) (secs/60)%60, (unsigned int)secs%60);
+      mvwprintw(player_win, 4, 2, "BPM: %3lu, Time: %02u:%02u:%02u %8lu", 60000000L/quarter_interval, (unsigned int)(secs/3600)%24,(unsigned int) (secs/60)%60, (unsigned int)secs%60, adiff);
       wrefresh(player_win);
       //fflush(stdout);
       osec = secs;
     }
     if(done)
       break;
-    usleep(adiff2-adiff);
+    unsigned long wtime = ticks_interval-(adiff-adiff_r);
+    if (wtime>0 && wtime <= ticks_interval)
+	    usleep(wtime);
+
+  /*  if (adiff2 > adiff) {
+    	usleep(adiff2-adiff);
+    }
+    */
+
+   if (adiff-o_adiff > m_adiff)
+	   m_adiff = adiff-o_adiff;
+
+   if (tick - otick > m_otick)
+	   m_otick = tick - otick;
+
+    mvwprintw(player_win, 5, 2, "%8lu   %8ld", m_otick, m_adiff);
+    wrefresh(player_win);
+   
+    otick = tick;
+    o_adiff = adiff;
   }
 
 //  mvwprintw(player_win, 5, 2, "Done.");
@@ -827,7 +917,11 @@ WINDOW *create_pattern_window()
 	return pattern_win;
 }
 
-int load_config();
+int load_config(MidiBoxConfig *cfg);
+
+MidiBoxConfig config;
+
+int load_song(char *filename);
 
 int main(int argc, char **argv)
 {
@@ -837,52 +931,24 @@ int main(int argc, char **argv)
   char *ext = NULL;
   int error=0;
 
-  load_config();
+  load_config(&config);
+
+  printf("==> %s\n", config.midiout);
+  printf("==> %s\n", config.songs);
+
+  // TODO free config
   getchar();
 
-  if( (ext = rindex(argv[1],'.')) && !strcasecmp(ext, ".txt" )) {
-    printf("List %s\n", argv[1]);
-    FILE *fp;
-    if(fp=fopen(argv[1],"rt")) {
-      while(!feof(fp)) {
-        char buffer[200];
-        int ch;
-        int l=0;
-        while( (ch=fgetc(fp)) != '\n' && ch != EOF ) {
-          if(l<199) buffer[l++] = ch;
-        }
-        buffer[l]='\0';
-        printf("Line %s\n", buffer);
-        if( (ext = rindex(buffer,'.')) && !strcasecmp(ext, ".mid" ) && totalpatterns < MAXPATTERNS ) {
-          list[totalpatterns] = midi_pattern_load(buffer);
-          if(list[totalpatterns]) {
-            printf("Loaded %s\n", buffer);
-            totalpatterns++;
-          } else {
-            printf("Error loading %s\n", buffer);
-            error=1;
-          }
-        }
-      }
-      fclose(fp);
-    }
-  }
-  else {
-    list[0] = midi_pattern_load(argv[1]);
-    if( list[0] ) {
-      printf("Import Ok\n");
-      totalpatterns = 1;
-/*    dump_pattern(patm);*/
-    }
-  }
-/*  exit(0);*/
+  load_song(argv[1]);
+
+  getchar();
 
   if(error) {
     printf("Aborting....\n");
     exit(2);
   }
 
-  midi_port_install("alsa;out:hw:2,0");
+  midi_port_install(config.midiout);
   midi_reset();
   signal(SIGTERM, terminate_handler);
   signal(SIGQUIT, terminate_handler);
@@ -925,20 +991,6 @@ int main(int argc, char **argv)
 
 }
 
-
-
-int readline(FILE *fp, char *buffer, int max);
-
-// if value is NULL is a section
-typedef int (*ini_token_func)(void *data, char *key, char *value);
-
-int ini_parse(char *filename, void *data, ini_token_func itf);
-
-typedef struct {
-	char *midiout;
-	char *songs;
-} MidiBoxConfig;
-
 struct _config_loader {
 	int current_section;
 	MidiBoxConfig *cfg;
@@ -946,96 +998,155 @@ struct _config_loader {
 
 int config_setter(void *data, char *key, char *value)
 {
+	struct _config_loader *cl = (struct _config_loader *) data;
+
 	if (key==NULL)
 		return 0;
 
-	if (value==NULL)
-	{
-		printf("Config Section: %s\n", key);
+	if (value==NULL) {
+
+		if (!strcmp(key, "main")) {
+			cl->current_section = 0;
+		} else {
+			cl->current_section = -1;
+		}
+
 		return 0;
 	}
 
-	printf("Config Key: %s => Value %s\n", key, value);
+	if (cl->current_section != 0)
+		return 0;
+
+	if (!strcmp(key, "midiout")) {
+		if (cl->cfg->midiout!=NULL)
+			return 0;
+		char *r = index(value, ';');
+		if (!r)
+			return -1;
+
+		int l = strlen(value)+5; /* strlen("out:") + 1 */
+
+		cl->cfg->midiout = (char *)malloc(l);
+		if (!cl->cfg->midiout)
+			return -2;
+
+		strncpy(cl->cfg->midiout, value, r-value+1);
+		strcpy(&cl->cfg->midiout[r-value+1], "out:");
+		strcat(cl->cfg->midiout, r+1);
+
+		return 0;
+	}
+
+	if (!strcmp(key, "songs")) {
+		if (cl->cfg->songs!=NULL)
+			return 0;
+
+		cl->cfg->songs = strdup(value);
+		return 0;
+	}
+
 	return 0;
 }
 
-int load_config()
+int load_config(MidiBoxConfig *cfg)
 {
-	return ini_parse("midibox.conf", NULL, config_setter);
+	struct _config_loader config_loader;
+	config_loader.current_section = 0;
+	config_loader.cfg = cfg;
+
+	cfg->midiout=NULL;
+	cfg->songs=NULL;
+
+	return ini_parse("midibox.conf", &config_loader, config_setter);
 }
 
-int ini_parse(char *filename, void *data, ini_token_func itf)
+struct _sequence_loader {
+	int pos;
+};
+
+int sequence_setter(void *data, char *key, char *value);
+
+int sequence_setter(void *data, char *key, char *value)
 {
-	char buffer[80];
-	FILE *fp = fopen(filename, "rt");
-	if (!fp)
-		return -2;
-	while(!feof(fp)) {
-		if (!readline(fp, buffer, 80)) {
-			continue;
-		}
-		int i=0;
-		printf("%s\n", buffer);
-		while(buffer[i]==' ') i++;
-		if (buffer[i]=='#')
-			continue;
-		if (buffer[i]=='[') {
-			i++;
-			while(buffer[i]==' ') i++;
-			int sf = i;
-			while(buffer[sf] && buffer[sf]!=']') sf++;
-			while(sf>i && buffer[sf-1]==' ') sf--;
-			buffer[sf]='\0';
-			char *section = &buffer[i];
-			if (itf)
-				itf(data, section, NULL);
-			continue;
-		}
-		if (!buffer[i])
-			continue;
+	struct _sequence_loader *sl = (struct _sequence_loader *) data;
 
-		int kf = i;
-		while(buffer[kf]!='=' && buffer[kf]) kf++;
-		if (!buffer[kf]) {
-			printf("Error @ %s\n", buffer);
-			continue;
-		}
-		int vi = kf+1;
-
-		while(kf>0 && buffer[kf-1]==' ') kf--;
-		if (kf == 0) {
-			printf("Error @ %s\n", buffer);
-			continue;
-		}
-
-		while(buffer[vi]==' ') vi++;
-
-		int vf = vi;
-		while(buffer[vf]) vf++;
-
-		while(vf>vi && buffer[vf-1]==' ') vf--;
-
-		buffer[kf] = '\0';
-		buffer[vf] = '\0';
-		char *key = &buffer[i];
-		char *value = &buffer[vi];
-
-		if (itf)
-			itf(data, key, value);
-	}
-	fclose(fp);
-}
-
-int readline(FILE *fp, char *buffer, int max)
-{
-	int l=0;
-	char ch;
-	if (max<1)
+	if (key==NULL)
 		return 0;
-	max--;
-        while( (ch=fgetc(fp)) != '\n' && ch != EOF ) {
-          if(l<max) buffer[l++] = ch;
-        }
-	buffer[l]='\0';
-	return l;
+
+	if (value==NULL) {
+		sl->pos++;
+	        printf("Part name: %s\n", key);	
+		return 0;
+	}
+
+	if (!strcmp(key, "filename")) {
+		if (sl->pos!=totalpatterns) 
+			return 0;
+		list[totalpatterns] = midi_pattern_load(value);
+          	if (list[totalpatterns]) {
+            		printf("Loaded %s\n", value);
+            		totalpatterns++;
+          	} else {
+            		printf("Error loading %s\n", value);
+          	}
+
+		return 0;
+	}
+
+
+	return 0;
+}
+
+int load_song(char *filename)
+{
+    char *ext = rindex(filename, '.');
+    if (!ext)
+	    return 0;
+
+    totalpatterns = 0;
+    if (!strcasecmp(ext, ".mid" )) {
+    	list[0] = midi_pattern_load(filename);
+   	if( list[0] ) {
+      	    printf("Import Ok\n");
+      	    totalpatterns = 1;
+    	}
+	return totalpatterns;
+    }
+
+	if (!strcasecmp(ext, ".lst")) {
+        	FILE *fp;
+		printf("%s\n", filename);
+ 		if(fp=fopen(filename,"rt")) {
+      			while(!feof(fp)) {
+        			char buffer[200];
+        			int ch;
+        			int l=0;
+        			while( (ch=fgetc(fp)) != '\n' && ch != EOF ) {
+          				if(l<199) buffer[l++] = ch;
+        			}
+        			buffer[l]='\0';
+        			printf("Line %s\n", buffer);
+        			if( (ext = rindex(buffer,'.')) && !strcasecmp(ext, ".mid" ) && totalpatterns < MAXPATTERNS ) {
+          				list[totalpatterns] = midi_pattern_load(buffer);
+          				if(list[totalpatterns]) {
+            					printf("Loaded %s\n", buffer);
+            					totalpatterns++;
+          				} else {
+            					printf("Error loading %s\n", buffer);
+          				}
+        			}
+      			}
+      			fclose(fp);
+    		}
+    		return totalpatterns;
+	}
+
+	if (!strcasecmp(ext, ".seq")) {
+		struct _sequence_loader sequence_loader;
+		sequence_loader.pos = -1;
+		totalpatterns = 0;
+		ini_parse(filename, &sequence_loader, sequence_setter);
+		return totalpatterns;
+	}
+	return 0;
 }
