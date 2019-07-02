@@ -89,5 +89,6 @@ typedef struct {
 } TrackParser;
 
 int parse_track(TrackParser *tp);
+MidiPattern *midi_pattern_load(char *filename);
 
 #endif
