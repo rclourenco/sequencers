@@ -4,6 +4,7 @@
 #include <time.h>
 #include <signal.h>
 #include <panel.h>
+#include <pthread.h>
 #include "iniparser.h"
 #include "midi_pattern.h"
 
@@ -133,6 +134,7 @@ void playing_loop(MidiPattern *pat)
   unsigned long btick = 0;
   int first = 1;
   int bref = 0;
+
   while(!done)
   {
     clock_gettime(CLOCK_REALTIME, &tp);
@@ -203,6 +205,191 @@ void playing_loop(MidiPattern *pat)
 //  mvwprintw(player_win, 5, 2, "Done.");
   wrefresh(player_win);
 }
+
+typedef void (*PlayingStatusCB)(void *data, int pat, unsigned long secs);
+
+volatile sig_atomic_t x = 0;
+
+void play_sequence(MidiPattern **patlist, int n, PlayingStatusCB stcb, void *stcb_data)
+{
+
+  if (!n)
+	  return;
+
+  int pt = 0;
+  MidiPattern *pat = patlist[pt++];
+  rewind_pattern(pat);
+
+  if(pat->ticks_quarter == 0) {
+    return;
+  }
+ 
+  unsigned long quarter_interval = 500000;
+  if(pat->tempo)
+    quarter_interval = pat->tempo;
+  unsigned long ticks_interval = quarter_interval/pat->ticks_quarter;
+
+  struct timespec tp;
+  unsigned long usec_el=0, o_usec_el=0,adiff=0, o_adiff=0, m_adiff=0;
+
+  clock_gettime(CLOCK_REALTIME, &tp);
+  o_usec_el = tp.tv_nsec/1000 + (tp.tv_sec%1000) * 1000000;
+
+  unsigned long i;
+  unsigned long osec = 10000;
+  int done = 0;
+  unsigned long otick = 0, m_otick=0;
+  unsigned long btick = 0;
+  int first = 1;
+  int bref = 0;
+
+  if (stcb)
+	  stcb(stcb_data, pt-1, 0);
+
+  while(!done)
+  {
+    clock_gettime(CLOCK_REALTIME, &tp);
+    usec_el = tp.tv_nsec/1000 + (tp.tv_sec%1000) * 1000000;
+    if (first) {
+	    o_usec_el = usec_el;
+	    adiff = 0;
+	    first = 0;
+    }
+    else {
+    	if(usec_el < o_usec_el)
+      		adiff = abs(1000000000+usec_el - o_usec_el);
+    	else
+      		adiff = abs(usec_el - o_usec_el);
+    }
+
+    unsigned long tick = adiff/ticks_interval+btick;
+    unsigned long adiff_r = (tick-btick) * ticks_interval;
+
+    unsigned long adiff2 = (tick+1)*ticks_interval;
+
+    done = play_pattern(pat,tick);
+
+    unsigned long secs = (adiff+bref)/1000000;
+
+    if (pat->ticks_quarter==0)
+	    break;
+    if(pat->tempo && pat->tempo != quarter_interval) {
+      quarter_interval = pat->tempo;
+      ticks_interval = quarter_interval/pat->ticks_quarter;
+      // rebase
+      o_usec_el = usec_el;
+      btick = tick;
+      bref += adiff;
+    }
+
+    //unsigned long adiff2 = (tick+1)*ticks_interval;
+
+    if( osec != secs ) {
+	  if (stcb)
+	  	stcb(stcb_data, pt-1, secs);
+
+      osec = secs;
+    }
+
+    if (x==2) {
+	    break;
+    }
+
+    unsigned long wtime = ticks_interval-(adiff-adiff_r);
+    if (wtime>0 && wtime <= ticks_interval)
+	    usleep(wtime);
+
+  /*  if (adiff2 > adiff) {
+    	usleep(adiff2-adiff);
+    }
+    */
+
+   if (adiff-o_adiff > m_adiff)
+	   m_adiff = adiff-o_adiff;
+
+   if (tick - otick > m_otick)
+	   m_otick = tick - otick;
+
+    otick = tick;
+    o_adiff = adiff;
+
+    if (done) {
+	if (x==1 || x==2)
+		break;
+	if (pt<n) {
+		done=0;
+		if (x!=3)
+			pat=patlist[pt++];
+		else
+			x=0;
+		rewind_pattern(pat);
+		if(pat->tempo)
+                   quarter_interval = pat->tempo;
+		if (pat->ticks_quarter==0)
+			break;
+		ticks_interval = quarter_interval/pat->ticks_quarter;
+		otick = 0;
+	       	m_otick=0;
+                btick = 0;
+		o_usec_el = usec_el;
+
+		if (stcb)
+	  		stcb(stcb_data, pt-1, 0);
+
+	} else {
+    		break;
+	}
+    }
+
+
+  }
+
+  if (stcb)
+	stcb(stcb_data, -1, 0);
+}
+
+typedef struct {
+	MidiPattern **list;
+	int len;
+}PlayerData;
+
+void update_cb(void *data, int pat, unsigned long secs)
+{
+	if (pat!=-1)
+		mvwprintw(player_win, 4, 2, "Pattern %02u Time: %02u:%02u:%02u", pat, (unsigned int)(secs/3600)%24,(unsigned int) (secs/60)%60, (unsigned int)secs%60);
+	wrefresh(player_win);
+}
+
+void *player_th_func(void *data)
+{
+	PlayerData *pdata = (PlayerData *)data;
+	play_sequence(pdata->list, pdata->len, update_cb, NULL);
+	pthread_exit(NULL);
+	return NULL;	
+}
+
+pthread_t player_th;
+pthread_attr_t th_attr;
+
+PlayerData player_data;
+
+void start_playing(MidiPattern **list, int len)
+{
+	player_data.list = list;
+	player_data.len = len;
+
+	pthread_attr_init(&th_attr);
+	pthread_attr_setdetachstate(&th_attr, PTHREAD_CREATE_JOINABLE);
+        pthread_create(&player_th, &th_attr, player_th_func, (void *) &player_data);
+}
+
+void player_wait()
+{
+	pthread_join(player_th, NULL);	
+}
+
+
+
 
 void midi_reset()
 {
@@ -347,6 +534,21 @@ int main(int argc, char **argv)
 
   show_panel(player_panel);
 
+  x=0;
+  start_playing(list, totalpatterns);
+  do {
+  	char t = getch();
+	switch(t) {
+		case 27: x=1; break;
+		case 32: x=2; break;
+		case 'r':
+		case 'R': x=3; break;
+	}
+  } while(x!=1 && x!=2);
+  player_wait();
+  midi_panic();
+
+  /*
   for(i=0;i<totalpatterns;i++) {
     doupdate();
     mvwprintw(player_win, 2, 2, "Playing %-25s", list[i]->filename);
@@ -354,6 +556,7 @@ int main(int argc, char **argv)
     rewind_pattern(list[i]);
     playing_loop(list[i]);
   }
+  */
   mvwprintw(player_win, 5, 2, "Done!");
   wrefresh(player_win);
 
