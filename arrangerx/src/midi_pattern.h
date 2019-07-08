@@ -90,5 +90,5 @@ typedef struct {
 
 int parse_track(TrackParser *tp);
 MidiPattern *midi_pattern_load(char *filename);
-
+void midi_pattern_free(MidiPattern **pat_r);
 #endif

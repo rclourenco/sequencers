@@ -355,9 +355,12 @@ typedef struct {
 
 void update_cb(void *data, int pat, unsigned long secs)
 {
-	if (pat!=-1)
-		mvwprintw(player_win, 4, 2, "Pattern %02u Time: %02u:%02u:%02u", pat, (unsigned int)(secs/3600)%24,(unsigned int) (secs/60)%60, (unsigned int)secs%60);
-	wrefresh(player_win);
+	if (pat!=-1) {
+		printf("Pattern %02u Time: %02u:%02u:%02u        \r", pat, (unsigned int)(secs/3600)%24,(unsigned int) (secs/60)%60, (unsigned int)secs%60);
+		fflush(stdout);
+		return;
+	}
+	printf("\r\nDone!\r\n");
 }
 
 void *player_th_func(void *data)
@@ -381,6 +384,7 @@ void start_playing(MidiPattern **list, int len)
 	pthread_attr_init(&th_attr);
 	pthread_attr_setdetachstate(&th_attr, PTHREAD_CREATE_JOINABLE);
         pthread_create(&player_th, &th_attr, player_th_func, (void *) &player_data);
+	pthread_attr_destroy(&th_attr);
 }
 
 void player_wait()
@@ -479,7 +483,47 @@ int load_config(MidiBoxConfig *cfg);
 
 MidiBoxConfig config;
 
+void free_patterns()
+{
+	if (totalpatterns==0)
+		return;
+	int i;
+	for(i=0;i<totalpatterns;i++) {
+		midi_pattern_free(&list[i]);		
+	}
+	totalpatterns=0;
+
+}
 int load_song(char *filename);
+
+int load_and_play(char *filename)
+{
+	int r = load_song(filename);
+	if(!r)
+		return r;
+	int i;
+
+  	for(i=0;i<totalpatterns;i++) {
+  		printf("P %02u: %-30s\r\n", i, list[i]->filename);
+  	}
+
+  	getch();
+
+  	x=0;
+  	start_playing(list, totalpatterns);
+  	do {
+  		char t = getch();
+		switch(t) {
+			case 27: x=1; break;
+			case 32: x=2; break;
+			case 'r':
+			case 'R': x=3; break;
+		}
+  	} while(x!=1 && x!=2);
+  	player_wait();
+  	midi_panic();
+	return 1;
+}
 
 int main(int argc, char **argv)
 {
@@ -494,18 +538,6 @@ int main(int argc, char **argv)
   printf("==> %s\n", config.midiout);
   printf("==> %s\n", config.songs);
 
-  // TODO free config
-  getchar();
-
-  load_song(argv[1]);
-
-  getchar();
-
-  if(error) {
-    printf("Aborting....\n");
-    exit(2);
-  }
-
   midi_port_install(config.midiout);
   midi_reset();
   signal(SIGTERM, terminate_handler);
@@ -519,49 +551,15 @@ int main(int argc, char **argv)
 
   create_pattern_window();
   create_player_window();
-  update_panels();
-  doupdate();
+  //update_panels();
+  //doupdate();
 
-  hide_panel(player_panel);
-  int i;
+//  hide_panel(player_panel);
 
-  for(i=0;i<totalpatterns;i++) {
-  	mvwprintw(pattern_win, i+1, 2, "%-30s", list[i]->filename);
-	wrefresh(pattern_win);
-  }
-
+  load_and_play(argv[1]);
+  
   getch();
-
-  show_panel(player_panel);
-
-  x=0;
-  start_playing(list, totalpatterns);
-  do {
-  	char t = getch();
-	switch(t) {
-		case 27: x=1; break;
-		case 32: x=2; break;
-		case 'r':
-		case 'R': x=3; break;
-	}
-  } while(x!=1 && x!=2);
-  player_wait();
-  midi_panic();
-
-  /*
-  for(i=0;i<totalpatterns;i++) {
-    doupdate();
-    mvwprintw(player_win, 2, 2, "Playing %-25s", list[i]->filename);
-    wrefresh(player_win);
-    rewind_pattern(list[i]);
-    playing_loop(list[i]);
-  }
-  */
-  mvwprintw(player_win, 5, 2, "Done!");
-  wrefresh(player_win);
-
-  getch();
-  hide_panel(player_panel);
+  //hide_panel(player_panel);
 
 }
 
@@ -649,7 +647,7 @@ int sequence_setter(void *data, char *key, char *value)
 
 	if (value==NULL) {
 		sl->pos++;
-	        printf("Part name: %s\n", key);	
+	        printf("Part name: %s\r\n", key);	
 		return 0;
 	}
 
@@ -658,10 +656,10 @@ int sequence_setter(void *data, char *key, char *value)
 			return 0;
 		list[totalpatterns] = midi_pattern_load(value);
           	if (list[totalpatterns]) {
-            		printf("Loaded %s\n", value);
+            		printf("Loaded %s\r\n", value);
             		totalpatterns++;
           	} else {
-            		printf("Error loading %s\n", value);
+            		printf("Error loading %s\r\n", value);
           	}
 
 		return 0;
@@ -677,11 +675,12 @@ int load_song(char *filename)
     if (!ext)
 	    return 0;
 
+    free_patterns();
     totalpatterns = 0;
     if (!strcasecmp(ext, ".mid" )) {
     	list[0] = midi_pattern_load(filename);
    	if( list[0] ) {
-      	    printf("Import Ok\n");
+      	    printf("Import Ok\r\n");
       	    totalpatterns = 1;
     	}
 	return totalpatterns;
@@ -689,7 +688,7 @@ int load_song(char *filename)
 
 	if (!strcasecmp(ext, ".lst")) {
         	FILE *fp;
-		printf("%s\n", filename);
+		printf("%s\r\n", filename);
  		if(fp=fopen(filename,"rt")) {
       			while(!feof(fp)) {
         			char buffer[200];
@@ -699,14 +698,14 @@ int load_song(char *filename)
           				if(l<199) buffer[l++] = ch;
         			}
         			buffer[l]='\0';
-        			printf("Line %s\n", buffer);
+        			printf("Line %s\r\n", buffer);
         			if( (ext = rindex(buffer,'.')) && !strcasecmp(ext, ".mid" ) && totalpatterns < MAXPATTERNS ) {
           				list[totalpatterns] = midi_pattern_load(buffer);
           				if(list[totalpatterns]) {
-            					printf("Loaded %s\n", buffer);
+            					printf("Loaded %s\r\n", buffer);
             					totalpatterns++;
           				} else {
-            					printf("Error loading %s\n", buffer);
+            					printf("Error loading %s\r\n", buffer);
           				}
         			}
       			}
