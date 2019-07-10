@@ -26,10 +26,24 @@ int load_songlist(char *filename, Song *list);
 XtAppContext app; 
 Widget main_widget;
 
-char *months[] = {"January", "February", "March", "April", "May", "June",
-	            "July", "August", "September", "October", "November", "December"};
-
 void play_song_external(char *filename);
+
+unsigned long interval = 250;
+
+volatile sig_atomic_t gSignalStatus = 0;
+static XtIntervalId    id;
+
+void check_bg (XtPointer client_data, XtIntervalId *id)
+{
+	Widget list_w = (Widget) client_data;
+	if (gSignalStatus) {
+		XtAppAddTimeOut (app, (unsigned long) interval, check_bg, (XtPointer) list_w);
+		return;
+	}
+	printf("We are free!\n");
+//	XtVaSetValues (list_w, XmNlistEnabled, True, NULL);
+	XtSetSensitive (list_w, True);
+}
 
 void sel_callback (Widget list_w, XtPointer client_data, XtPointer call_data)
 {
@@ -47,10 +61,11 @@ void sel_callback (Widget list_w, XtPointer client_data, XtPointer call_data)
 	if (cbs->item_position > 0 && cbs->item_position <= total_songs) {
 		printf("Song Filename: %s\n", songlist[cbs->item_position-1].filename);
 		play_song_external(songlist[cbs->item_position-1].filename);
+		XtAppAddTimeOut (app, (unsigned long) interval, check_bg, (XtPointer) list_w);
+//		XtVaSetValues (list_w, XmNlistEnabled, False, NULL);
+		XtSetSensitive (list_w, False);
 	}
 }
-
-
 
 void proc_exit();
 
@@ -60,7 +75,6 @@ int main (int argc, char **argv)
 	int i, n = XtNumber (months);
 	Widget list;
 	XmStringTable    str_list;
-	Arg args[4];
 
 	signal (SIGCHLD, proc_exit);
 
@@ -76,7 +90,7 @@ int main (int argc, char **argv)
 //	}
         short unsigned int xx,yy;
         //--- Create and initialize the top-level widget 
-	main_widget = XtVaOpenApplication(&app, "My Application", NULL, 0, &argc, argv, NULL, sessionShellWidgetClass, NULL);
+	main_widget = XtOpenApplication(&app, "MIDI Jukebox", NULL, 0, &argc, argv, NULL, sessionShellWidgetClass, NULL, 0);
 	//--- Make it the desired size 
 //	XtMakeResizeRequest(main_widget, 400, 100, &xx, &yy);
 
@@ -85,12 +99,8 @@ int main (int argc, char **argv)
 	for (i = 0; i < n; i++)
 	    str_list[i] = XmStringCreateLocalized (songlist[i].name);
 
-	i = 0;
-	XtSetArg (args[i], XmNvisibleItemCount, n); i++;
-        XtSetArg (args[i], XmNitemCount, n);        i++;
-	XtSetArg (args[i], XmNitems, str_list);     i++;
-
-	list = XmCreateList (main_widget, "Hello", args, i);
+	list = XmCreateScrolledList (main_widget, "Hello", NULL, 0);
+        XtVaSetValues (list, XmNitems, str_list, XmNitemCount, n, XmNvisibleItemCount, 5, NULL);
 
 	for (i = 0; i < n; i++)
 	     XmStringFree (str_list[i]);
@@ -157,8 +167,6 @@ int load_songlist(char *filename, Song *list)
     return 0;
 }
 
-volatile sig_atomic_t gSignalStatus = 0;
-
 void proc_exit()
 {
 	int wstat;
@@ -195,7 +203,7 @@ void play_song_external(char *filename)
 
     if (cpid == 0) {            /* Code executed by child */
         printf("Child PID is %ld\n", (long) getpid());
-	execlp("./midibox","./midibox", filename, NULL);
+	execlp("xterm","xterm", "-T", "Hello", "-e", "./midibox", filename, NULL);
         _exit(0);
     }
 }
