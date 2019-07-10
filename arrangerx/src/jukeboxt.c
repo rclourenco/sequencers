@@ -4,6 +4,8 @@
 #include <sys/wait.h>
 #include <sys/resource.h>
 #include <Xm/List.h>
+#include <Xm/BulletinB.h>
+#include <Xm/RowColumn.h>
 #include <X11/IntrinsicP.h> // IntrinsicP.h has some faster macros than Intrinsic.h
 #include <X11/ShellP.h> // Needed for Widget class definitions 
 #include <string.h>
@@ -69,13 +71,15 @@ void sel_callback (Widget list_w, XtPointer client_data, XtPointer call_data)
 
 void proc_exit();
 
+unsigned long into = 0;
+
 int main (int argc, char **argv)
 {
 	int status = 0;
-	int i, n = XtNumber (months);
-	Widget list;
+	int i, n;
+	Widget list, bboard, bboard2;
 	XmStringTable    str_list;
-
+	Window w1, w2;
 	signal (SIGCHLD, proc_exit);
 
 	if (argc>1) {
@@ -94,12 +98,18 @@ int main (int argc, char **argv)
 	//--- Make it the desired size 
 //	XtMakeResizeRequest(main_widget, 400, 100, &xx, &yy);
 
+        bboard = XmCreateRowColumn(main_widget, "bboard", NULL, 0);
+
+    /* Set up a translation table that captures "Resize" events 
+     *     ** (also called ConfigureNotify or Configure events). If the
+     *         ** event is generated, call the function resize().
+     *             */
 	str_list = (XmStringTable) XtMalloc (n * sizeof (XmString));
 
 	for (i = 0; i < n; i++)
 	    str_list[i] = XmStringCreateLocalized (songlist[i].name);
 
-	list = XmCreateScrolledList (main_widget, "Hello", NULL, 0);
+	list = XmCreateScrolledList (bboard, "Hello", NULL, 0);
         XtVaSetValues (list, XmNitems, str_list, XmNitemCount, n, XmNvisibleItemCount, 5, NULL);
 
 	for (i = 0; i < n; i++)
@@ -107,9 +117,22 @@ int main (int argc, char **argv)
 	XtFree ((char *) str_list);
 
         XtManageChild (list);
+        
+	bboard2 = XmCreateBulletinBoard (bboard, "player", NULL, 0);
+	XtManageChild(bboard2);
+
+	XtManageChild (bboard);
+        XtMakeResizeRequest(bboard2, 400, 400, &xx, &yy);
+
         XtAddCallback (list, XmNdefaultActionCallback, sel_callback, NULL);	
 	//--- Realize the main widget 
 	XtRealizeWidget(main_widget);
+	w1 = XtWindow(main_widget);
+	w2 = XtWindow(bboard2);
+
+	printf("Window 1: %lu\n", (unsigned long)w1);
+	printf("Window 2: %lu\n", (unsigned long)w2);
+	into = (unsigned long)w2;
 
 	XtAppMainLoop(app);
 	return status;
@@ -203,7 +226,11 @@ void play_song_external(char *filename)
 
     if (cpid == 0) {            /* Code executed by child */
         printf("Child PID is %ld\n", (long) getpid());
-	execlp("xterm","xterm", "-T", "Hello", "-e", "./midibox", filename, NULL);
+	if (into != 0) {
+		char tmp[20];
+		sprintf(tmp, "%lu", into);
+		execlp("xterm","xterm", "-into", tmp ,"-T", "Hello", "-e", "./midibox", filename, NULL);
+	}
         _exit(0);
     }
 }
