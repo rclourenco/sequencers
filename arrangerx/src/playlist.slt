@@ -2,10 +2,10 @@
 filename=sequencia.seq
 
 [Hey Joe]
-filename=hey_joe.mid
+filename=songs/hey_joe.mid
 
 [Come Together]
-filename=come_together.mid
+filename=songs/come_together.mid
 
 [Purple Haze]
-filename=purple_haze.mid
+filename=songs/purple_haze.mid

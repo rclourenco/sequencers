@@ -12,6 +12,7 @@
 
 
 typedef struct {
+	char *midiin;
 	char *midiout;
 	char *songs;
 } MidiBoxConfig;
@@ -111,15 +112,16 @@ PANEL
 void playing_loop(MidiPattern *pat)
 {
   if(pat->ticks_quarter == 0) {
-    mvwprintw(player_win, 3, 2, "Cannot play MIDI Files with SMTPE timing\n"); wrefresh(player_win);
+    printf("Cannot play MIDI Files with SMTPE timing\n");
     return;
   }
   unsigned long quarter_interval = 500000;
   if(pat->tempo)
     quarter_interval = pat->tempo;
-  mvwprintw(player_win, 3, 2, "Quarter Interval %8lu", quarter_interval); wrefresh(player_win);
+
+  printf("Quarter Interval %8lu\n", quarter_interval);
   unsigned long ticks_interval = quarter_interval/pat->ticks_quarter;
-  mvwprintw(player_win, 6, 2, "Ticks Interval %8lu", ticks_interval); wrefresh(player_win);
+  printf("Ticks Interval %8lu\n", ticks_interval);
 
   struct timespec tp;
   unsigned long usec_el=0, o_usec_el=0,adiff=0, o_adiff=0, m_adiff=0;
@@ -167,14 +169,13 @@ void playing_loop(MidiPattern *pat)
       o_usec_el = usec_el;
       btick = tick;
       bref += adiff;
-      mvwprintw(player_win, 6, 2, "Ticks Interval %8lu => %8ld ", ticks_interval, adiff-adiff_r); wrefresh(player_win);
+      printf("Ticks Interval %8lu => %8ld \n", ticks_interval, adiff-adiff_r);
     }
 
     //unsigned long adiff2 = (tick+1)*ticks_interval;
 
     if( osec != secs ) {
-      mvwprintw(player_win, 4, 2, "BPM: %3lu, Time: %02u:%02u:%02u %8lu", 60000000L/quarter_interval, (unsigned int)(secs/3600)%24,(unsigned int) (secs/60)%60, (unsigned int)secs%60, adiff);
-      wrefresh(player_win);
+      printf("BPM: %3lu, Time: %02u:%02u:%02u %8lu\n", 60000000L/quarter_interval, (unsigned int)(secs/3600)%24,(unsigned int) (secs/60)%60, (unsigned int)secs%60, adiff);
       //fflush(stdout);
       osec = secs;
     }
@@ -195,20 +196,16 @@ void playing_loop(MidiPattern *pat)
    if (tick - otick > m_otick)
 	   m_otick = tick - otick;
 
-    mvwprintw(player_win, 5, 2, "%8lu   %8ld", m_otick, m_adiff);
-    wrefresh(player_win);
-   
     otick = tick;
     o_adiff = adiff;
   }
 
-//  mvwprintw(player_win, 5, 2, "Done.");
-  wrefresh(player_win);
 }
 
 typedef void (*PlayingStatusCB)(void *data, int pat, unsigned long secs);
 
 volatile sig_atomic_t x = 0;
+volatile sig_atomic_t player_on = 0;
 
 void play_sequence(MidiPattern **patlist, int n, PlayingStatusCB stcb, void *stcb_data)
 {
@@ -356,7 +353,7 @@ typedef struct {
 void update_cb(void *data, int pat, unsigned long secs)
 {
 	if (pat!=-1) {
-		printf("Pattern %02u Time: %02u:%02u:%02u        \r", pat, (unsigned int)(secs/3600)%24,(unsigned int) (secs/60)%60, (unsigned int)secs%60);
+		printf("\rPattern %02u Time: %02u:%02u:%02u  [<ESC>: Next Pat, <SP>: Quit]", pat, (unsigned int)(secs/3600)%24,(unsigned int) (secs/60)%60, (unsigned int)secs%60);
 		fflush(stdout);
 		return;
 	}
@@ -366,7 +363,8 @@ void update_cb(void *data, int pat, unsigned long secs)
 void *player_th_func(void *data)
 {
 	PlayerData *pdata = (PlayerData *)data;
-	play_sequence(pdata->list, pdata->len, update_cb, NULL);
+	play_sequence(pdata->list, pdata->len, update_cb, pdata);
+	player_on = 0;
 	pthread_exit(NULL);
 	return NULL;	
 }
@@ -380,7 +378,7 @@ void start_playing(MidiPattern **list, int len)
 {
 	player_data.list = list;
 	player_data.len = len;
-
+        player_on = 1;
 	pthread_attr_init(&th_attr);
 	pthread_attr_setdetachstate(&th_attr, PTHREAD_CREATE_JOINABLE);
         pthread_create(&player_th, &th_attr, player_th_func, (void *) &player_data);
@@ -392,8 +390,61 @@ void player_wait()
 	pthread_join(player_th, NULL);	
 }
 
+volatile sig_atomic_t reader_on = 0;
 
+void *midireader_th_func(void *data)
+{
+	MidiParser mp;
+	MidiEvent  me;
+	midiParserInit(&mp);
 
+	printf("READER STARTED!!!\n");
+	while(reader_on) {
+		int input = midi_in();
+		if (input >= 0) {
+			unsigned char msg = input;
+			if (midiParser(&mp, input, &me)) {
+				switch(me.cmd) {
+					case 0x82:
+					case 0x92:
+					case 0xA2:
+					case 0xB2:
+						msg = me.cmd;midi_out(&msg,1);
+						msg = me.p1; midi_out(&msg,1);
+						msg = me.p2; midi_out(&msg,1);
+						break;
+					case 0xC2:
+						msg = me.cmd;midi_out(&msg,1);
+						msg = me.p1; midi_out(&msg,1);
+				}
+			}
+			
+			//printf("MIDI IN: %02X\n", input);
+			continue;
+		}
+		usleep(1000);
+	}
+	printf("READER EXIT\n");
+	reader_on = 0;
+	pthread_exit(NULL);
+	return NULL;	
+}
+
+pthread_t reader_th;
+void midi_reader_start()
+{
+	reader_on = 1;
+	pthread_attr_init(&th_attr);
+	pthread_attr_setdetachstate(&th_attr, PTHREAD_CREATE_JOINABLE);
+        pthread_create(&reader_th, &th_attr, midireader_th_func, NULL);
+	pthread_attr_destroy(&th_attr);
+}
+
+void midi_reader_shutdown()
+{
+	reader_on = 0; // request midireader thread quit
+	pthread_join(reader_th, NULL);
+}
 
 void midi_reset()
 {
@@ -507,19 +558,22 @@ int load_and_play(char *filename)
   		printf("P %02u: %-30s\r\n", i, list[i]->filename);
   	}
 
-  	getch();
+	printf("Press Enter to Start Playing!\n");
+  	getchar();
 
   	x=0;
   	start_playing(list, totalpatterns);
   	do {
-  		char t = getch();
+  		char t = getchar();
+		if (player_on==0)
+			break;
 		switch(t) {
-			case 27: x=1; break;
-			case 32: x=2; break;
+			case 'n': x=1; break;
+			case 'q': x=2; break;
 			case 'r':
 			case 'R': x=3; break;
 		}
-  	} while(x!=1 && x!=2);
+  	} while(1);
   	player_wait();
   	midi_panic();
 	return 1;
@@ -536,9 +590,22 @@ int main(int argc, char **argv)
   load_config(&config);
 
   printf("==> %s\n", config.midiout);
+  printf("==> %s\n", config.midiin);
+
   printf("==> %s\n", config.songs);
 
-  midi_port_install(config.midiout);
+  char mididevs[200];
+  strcpy(mididevs, "");
+  if (config.midiout)
+  	strcpy(mididevs, config.midiout);
+
+  if (config.midiin) {
+	strcat(mididevs, ";");
+  	strcat(mididevs, config.midiin);
+  }
+
+  midi_set_input_blocking(0);
+  midi_port_install(mididevs);
   midi_reset();
   signal(SIGTERM, terminate_handler);
   signal(SIGQUIT, terminate_handler);
@@ -546,20 +613,21 @@ int main(int argc, char **argv)
   signal(SIGHUP, terminate_handler);
   atexit(midi_panic);
 
-  initscr();
-  atexit(apshutdown);
+  //atexit(apshutdown);
 
-  create_pattern_window();
-  create_player_window();
+  //create_pattern_window();
+  //create_player_window();
   //update_panels();
   //doupdate();
 
 //  hide_panel(player_panel);
 
+  midi_reader_start();
   load_and_play(argv[1]);
   
-  getch();
+  getchar();
   //hide_panel(player_panel);
+  midi_reader_shutdown();
 
 }
 
@@ -605,6 +673,25 @@ int config_setter(void *data, char *key, char *value)
 		strncpy(cl->cfg->midiout, value, r-value+1);
 		strcpy(&cl->cfg->midiout[r-value+1], "out:");
 		strcat(cl->cfg->midiout, r+1);
+
+		return 0;
+	}
+	if (!strcmp(key, "midiin")) {
+		if (cl->cfg->midiin!=NULL)
+			return 0;
+		char *r = index(value, ';');
+		if (!r)
+			return -1;
+
+		int l = strlen(value)+4; /* strlen("out:") + 1 */
+
+		cl->cfg->midiin = (char *)malloc(l);
+		if (!cl->cfg->midiin)
+			return -2;
+
+		strncpy(cl->cfg->midiin, value, r-value+1);
+		strcpy(&cl->cfg->midiin[r-value+1], "in:");
+		strcat(cl->cfg->midiin, r+1);
 
 		return 0;
 	}

@@ -137,14 +137,14 @@ int main (int argc, char **argv)
       
         Arg args[4];	
         n = 0;
-        XtSetArg (args[n], XmNwidth, 500);                   n++;
-        XtSetArg (args[n], XmNheight, 300);                  n++;
+        XtSetArg (args[n], XmNwidth,  800);                  n++;
+        XtSetArg (args[n], XmNheight, 600);                  n++;
         XtSetArg (args[n], XmNscrollingPolicy, XmAUTOMATIC); n++;    
 	bboard2 = XmCreateScrolledWindow(bboard, "player", args, n);
 	XtManageChild(bboard2);
 
 	XtManageChild (bboard);
-       // XtMakeResizeRequest(bboard2, 400, 400, &xx, &yy);
+        //XtMakeResizeRequest(bboard2, 400, 400, &xx, &yy);
 
         XtAddCallback (list, XmNdefaultActionCallback, sel_callback, NULL);
         

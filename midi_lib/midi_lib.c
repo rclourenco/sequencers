@@ -4,6 +4,25 @@
 
 MidiDriver *midi_driver_default;
 
+int input_mode  = 0;
+int output_mode = 0;
+
+void midi_set_input_blocking(int state)
+{
+	if(state==0)
+	       	input_mode |= SND_RAWMIDI_NONBLOCK;
+	else
+		input_mode &= ~SND_RAWMIDI_NONBLOCK;
+}
+
+void midi_set_output_blocking(int state)
+{
+	if(state==0)
+	       	output_mode |= SND_RAWMIDI_NONBLOCK;
+	else
+		output_mode &= ~SND_RAWMIDI_NONBLOCK;
+}
+
 int midi_init_alsa(MidiDriver **mididriver_p, const char *device_in, const char *device_out);
 
 void midi_out_f_dummy(MidiDriver *md, const char *msg, size_t len) {
@@ -146,6 +165,14 @@ void midi_out_f_alsa(MidiDriver *md, const char *msg, size_t len) {
   }
 }
 
+int midi_in_f_alsa(MidiDriver *md) {
+    unsigned char ch;
+    size_t l = snd_rawmidi_read(md->d.alsa.midihandle_in,&ch,1);
+    if (l!=1)
+	    return -1;
+    return ch;
+}
+
 int midi_init_alsa(MidiDriver **mididriver_p, const char *device_in, const char *device_out)
 {
   *mididriver_p = NULL;
@@ -179,7 +206,7 @@ int midi_init_alsa(MidiDriver **mididriver_p, const char *device_in, const char 
 
   if(mididriver->d.alsa.mididevice_in) {
 		printf("Opening midi in %s\n",mididriver->d.alsa.mididevice_in);
-		int err = snd_rawmidi_open(&mididriver->d.alsa.midihandle_in,NULL,mididriver->d.alsa.mididevice_in,0);
+		int err = snd_rawmidi_open(&mididriver->d.alsa.midihandle_in,NULL,mididriver->d.alsa.mididevice_in,input_mode);
 		if (err) {
 		        fprintf(stderr,"snd_rawmidi_open %s failed: %d\n",mididriver->d.alsa.mididevice_in,err);
 		    free(mididriver);
@@ -188,6 +215,8 @@ int midi_init_alsa(MidiDriver **mididriver_p, const char *device_in, const char 
 		}
 		else{
 			mididriver->d.alsa.midi_in   = 1;
+			mididriver->midi_in_f = midi_in_f_alsa;
+
 			if(!snd_rawmidi_info_malloc(&rawmidi_info)) {
 				snd_rawmidi_info(mididriver->d.alsa.midihandle_in,rawmidi_info);
 				const char *id   = snd_rawmidi_info_get_id(rawmidi_info);
@@ -207,7 +236,7 @@ int midi_init_alsa(MidiDriver **mididriver_p, const char *device_in, const char 
 	
 	if(mididriver->d.alsa.mididevice_out) {
     	printf("Opening midi out %s\n",mididriver->d.alsa.mididevice_out);
-		int err = snd_rawmidi_open(NULL,&mididriver->d.alsa.midihandle_out,mididriver->d.alsa.mididevice_out,0);
+		int err = snd_rawmidi_open(NULL,&mididriver->d.alsa.midihandle_out,mididriver->d.alsa.mididevice_out,output_mode);
 		if (err) {
 		        fprintf(stderr,"snd_rawmidi_open %s failed: %d\n",mididriver->d.alsa.mididevice_out,err);
 				return err;
@@ -243,6 +272,8 @@ main (int argc, char **argv)
   printf("Ok\n");
   if( argc > 1) {
     midi_port_install(argv[1]);
+    int x = midi_in();
+    printf("X: %02X\n", x);
   } else {
     midi_port_install(NULL);
   }

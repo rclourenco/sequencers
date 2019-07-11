@@ -15,6 +15,9 @@ typedef struct {
   unsigned char p2;
 }MidiEvent;
 
+void midiParserInit(MidiParser *mp);
+int midiParser(MidiParser *mp,int input, MidiEvent *me);
+
 typedef enum {MIDI_NONE, MIDI_ALSA} MidiDriverType;
 
 typedef struct {
@@ -39,16 +42,18 @@ typedef struct _midi_driver {
     MidiDriverAlsa alsa;
   } d;
   void (*midi_out_f)(struct _midi_driver *md, const char *msg, size_t len);
+  int  (*midi_in_f)(struct _midi_driver *md);
 }MidiDriver;
 
 extern MidiDriver *midi_driver_default;
 
 #define midi_out(m, l) if( midi_driver_default ) \
   midi_driver_default->midi_out_f(midi_driver_default, (m), (l))
-
+#define midi_in() (( midi_driver_default ) ? midi_driver_default->midi_in_f(midi_driver_default) : -1)
 
 int midi_port_install(const char *midi_opts);
 
-
+void midi_set_input_blocking(int state);
+void midi_set_output_blocking(int state);
 
 #endif
