@@ -104,13 +104,33 @@ void midiParserInit(MidiParser *mp)
 
 int midiParser(MidiParser *mp,int input, MidiEvent *me)
 {
-	if( (input & 0xF0) == 0xF0) {
+	if (input == 0xF0) {
+		mp->st = 3;
 		me->cmd = input;
-		me->p1 = 0;
-		me->p2 = 0;
-
+		me->p1 = input;
 		return 1;
 	}
+
+	if (mp->st == 3) {
+		if (input<=127) {
+			me->cmd = 0xF0;
+			me->p1 = input;
+			return 1;
+		}
+		mp->st = 0;
+		if (input== 0xF7) {
+			me->cmd = 0xF0;
+			me->p1  = input;
+			return 1;
+		}
+	}
+
+	if (input >= 0xF4) {
+		mp->st = 0;
+		me->cmd = input;
+		return 1;
+	}
+
 
 	switch(mp->st) {
 		case 0: if( input > 127 ) { 
@@ -124,9 +144,18 @@ int midiParser(MidiParser *mp,int input, MidiEvent *me)
 				 mp->st = 1;
 			}
 			else{
+				int pre = mp->scmd & 0xF;
+				int fl = mp->scmd;
+				int one = 
+					pre == 0xC0 ||
+				       	pre == 0xD0 || 
+					fl  == 0xF1 ||
+					fl  == 0xF3;
 				mp->sp1=input;
 				mp->st = 2;
-				if( (mp->scmd & 0xF0) == 0xC0 ) {
+				
+				
+				if( one ) {
 					mp->st = 1;
 					me->cmd =  mp->scmd;
 					me->p1  =  mp->sp1;

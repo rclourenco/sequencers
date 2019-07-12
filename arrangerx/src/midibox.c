@@ -409,13 +409,19 @@ void *midireader_th_func(void *data)
 					case 0x92:
 					case 0xA2:
 					case 0xB2:
+					case 0xE2:
 						msg = me.cmd;midi_out(&msg,1);
 						msg = me.p1; midi_out(&msg,1);
 						msg = me.p2; midi_out(&msg,1);
 						break;
 					case 0xC2:
+					case 0xD2:
 						msg = me.cmd;midi_out(&msg,1);
 						msg = me.p1; midi_out(&msg,1);
+						break;
+					case 0xFA: x = 3; break;
+					case 0xFB: x = 2; break;
+					case 0xFC: x = 1; break;
 				}
 			}
 			
