@@ -1,0 +1,7 @@
+*Background: linen
+*Foreground: black
+*font: 9x15
+*saveLines: 1000
+*HiForeColor: white
+*HiBackColor: #c06077
+*geometry: +50+100

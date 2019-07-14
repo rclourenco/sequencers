@@ -56,4 +56,14 @@ int midi_port_install(const char *midi_opts);
 void midi_set_input_blocking(int state);
 void midi_set_output_blocking(int state);
 
+typedef struct _device_entry {
+	int flags;
+	char device[100];
+        char *name;
+	struct _device_entry *next;
+} DeviceEntry;
+
+DeviceEntry *midi_get_devices();
+void midi_free_device_list(DeviceEntry *entry);
+
 #endif

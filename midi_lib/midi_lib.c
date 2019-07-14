@@ -29,6 +29,12 @@ void midi_out_f_dummy(MidiDriver *md, const char *msg, size_t len) {
 /*  fprintf(stderr, "[DEBUG] Received midi msg len %u\n", len);*/
 }
 
+int midi_in_f_dummy(MidiDriver *md) {
+	return -1;
+}
+
+
+
 int midi_port_install(const char *midi_opts)
 {
   char drivertype[128];
@@ -220,6 +226,7 @@ int midi_init_alsa(MidiDriver **mididriver_p, const char *device_in, const char 
   mididriver->d.alsa.midi_out = 0;
 
   mididriver->midi_out_f = midi_out_f_dummy;
+  mididriver->midi_in_f  = midi_in_f_dummy;
 
   if( device_in ) {
     mididriver->d.alsa.mididevice_in = strdup(device_in);
@@ -294,11 +301,204 @@ int midi_init_alsa(MidiDriver **mididriver_p, const char *device_in, const char 
 	return 0;
 }
 
+static DeviceEntry *add_device_entry(DeviceEntry ***lptr, int flags, int card, int device, int subdevice, const char *name)
+{
+	if(lptr==NULL)
+		return NULL;
+	DeviceEntry *nptr = malloc(sizeof(DeviceEntry));
+	if (nptr == NULL) {
+		return NULL;
+	}
+
+	nptr->name = strdup(name);
+	if (nptr->name==NULL)
+		goto l_free;
+
+	nptr->flags = flags;
+	if (subdevice<0)
+		sprintf(nptr->device, "alsa:hw:%d,%d", card, device);
+	else
+		sprintf(nptr->device, "alsa:hw:%d,%d,%d", card, device, subdevice);
+
+	nptr->next = NULL;
+
+//	printf("Lptr %p %p %p\n", lptr, nptr, &nptr->next);
+
+	**lptr = nptr;
+	*lptr = &nptr->next;
+
+	return nptr;
+
+l_free:
+	free(nptr);
+	return NULL;
+}
+
+static void list_device(snd_ctl_t *ctl, int card, int device, DeviceEntry ***lptr)
+{
+	snd_rawmidi_info_t *info;
+	const char *name;
+	const char *sub_name;
+	int subs, subs_in, subs_out;
+	int sub;
+	int err;
+
+	snd_rawmidi_info_alloca(&info);
+	snd_rawmidi_info_set_device(info, device);
+
+	snd_rawmidi_info_set_stream(info, SND_RAWMIDI_STREAM_INPUT);
+	err = snd_ctl_rawmidi_info(ctl, info);
+	if (err >= 0)
+		subs_in = snd_rawmidi_info_get_subdevices_count(info);
+	else
+		subs_in = 0;
+
+	snd_rawmidi_info_set_stream(info, SND_RAWMIDI_STREAM_OUTPUT);
+	err = snd_ctl_rawmidi_info(ctl, info);
+	if (err >= 0)
+		subs_out = snd_rawmidi_info_get_subdevices_count(info);
+	else
+		subs_out = 0;
+
+	subs = subs_in > subs_out ? subs_in : subs_out;
+	if (!subs)
+		return;
+
+	for (sub = 0; sub < subs; ++sub) {
+		snd_rawmidi_info_set_stream(info, sub < subs_in ? SND_RAWMIDI_STREAM_INPUT : SND_RAWMIDI_STREAM_OUTPUT);
+		snd_rawmidi_info_set_subdevice(info, sub);
+		err = snd_ctl_rawmidi_info(ctl, info);
+		if (err < 0) {
+//			fprintf(stderr, "cannot get rawmidi information %d:%d:%d: %s\n", card, device, sub, snd_strerror(err));
+			return;
+		}
+		name = snd_rawmidi_info_get_name(info);
+		sub_name = snd_rawmidi_info_get_subdevice_name(info);
+		if (sub == 0 && sub_name[0] == '\0') {
+	/*		printf("%c%c  hw:%d,%d    %s",
+       				sub < subs_in ? 'I' : ' ',
+       			       	sub < subs_out ? 'O' : ' ',
+       			       card, device, name);
+			if (subs > 1)
+				printf(" (%d subdevices)", subs);
+			putchar('\n');
+*/
+			int flags = 0;
+			flags |= (sub < subs_in ?  1 : 0);
+			flags |= (sub < subs_out ? 2 : 0);
+
+			if (add_device_entry(lptr, flags, card, device, -1, name)) {
+			} 
+			else
+				return;
+
+			break;
+		} else {
+/*				printf("%c%c  hw:%d,%d,%d  %s\n",
+       					sub < subs_in ? 'I' : ' ',
+       			       		sub < subs_out ? 'O' : ' ',
+       			       		card, device, sub, sub_name); */
+
+			int flags = 0;
+			flags |= (sub < subs_in ?  1 : 0);
+			flags |= (sub < subs_out ? 2 : 0);
+
+			if (add_device_entry(lptr, flags, card, device, sub, name)) {
+			} 
+			else
+				return;
+
+
+		}
+	}
+}
+
+static void list_card_devices(int card, DeviceEntry ***lptr)
+{
+	snd_ctl_t *ctl;
+	char name[32];
+	int device;
+	int err;
+
+	sprintf(name, "hw:%d", card);
+	if ((err = snd_ctl_open(&ctl, name, 0)) < 0) {
+	//	fprintf(stderr ,"cannot open control for card %d: %s", card, snd_strerror(err));
+		return;
+	}
+	device = -1;
+	for (;;) {
+		if ((err = snd_ctl_rawmidi_next_device(ctl, &device)) < 0) {
+	//		fprintf(stderr, "cannot determine device number: %s", snd_strerror(err));
+			break;
+		}
+		if (device < 0)
+			break;
+		list_device(ctl, card, device, lptr);
+	}
+	snd_ctl_close(ctl);
+}
+
+static void list_cards(DeviceEntry ***lptr)
+{
+	int card, err;
+
+	card = -1;
+	if ((err = snd_card_next(&card)) < 0) {
+	//	fprintf(stderr, "cannot determine card number: %s\n", snd_strerror(err));
+		return;
+	}
+	if (card < 0) {
+	//	fprintf(stderr, "no sound card found\n");
+		return;
+	}
+	//puts("Dir Device    Name");
+	do {
+		list_card_devices(card, lptr);
+		if ((err = snd_card_next(&card)) < 0) {
+	//		fprintf(stderr, "cannot determine card number: %s\n", snd_strerror(err));
+			break;
+		}
+	} while (card >= 0);
+}
+
+void midi_free_device_list(DeviceEntry *entry)
+{
+  if (entry==NULL)
+	  return;
+
+  DeviceEntry *last = entry;
+  while (entry) {
+	last = entry;
+  	entry = entry->next;
+	free(last->name);
+	free(last);
+  }
+}
+
+DeviceEntry *midi_get_devices()
+{
+	DeviceEntry *first = NULL;
+	DeviceEntry **cards = &first;
+
+ 	list_cards(&cards);
+
+	return first;
+}
 
 #ifdef make_test
-main (int argc, char **argv)
+int main (int argc, char **argv)
 {
-  printf("Ok\n");
+  printf("List Cards\n");
+  DeviceEntry *first = midi_get_devices();
+ 
+  while (first) {
+	printf("%s [%s]\n", first->name, first->device);
+  	first = first->next;
+  }
+  midi_free_device_list(first);
+  /*
+  printf("Ok %p\n", cards);
+  */
   if( argc > 1) {
     midi_port_install(argv[1]);
     int x = midi_in();
@@ -306,6 +506,6 @@ main (int argc, char **argv)
   } else {
     midi_port_install(NULL);
   }
-  
+  return 0; 
 }
 #endif
