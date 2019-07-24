@@ -61,8 +61,9 @@ typedef struct _MidiTrackNode {
   MidiEventNode *playing;
 } MidiTrackNode;
 
+#define PATTERN_MAXFILENAME 255
 typedef struct _MidiPattern {
-  char filename[255];
+  char filename[PATTERN_MAXFILENAME+1];
   MidiTrackNode *tracks;
   unsigned int ticks_quarter;
   unsigned long tempo;

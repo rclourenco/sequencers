@@ -2,6 +2,7 @@
 #include <signal.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <libgen.h>
 #include <sys/wait.h>
 #include <sys/resource.h>
 #include <Xm/List.h>
@@ -30,7 +31,7 @@ typedef struct {
 } Song;
 
 Song songlist[MAXSONGS];
-
+char *playlist_folder = NULL;
 char *playlist_file = NULL;
 
 int load_songlist(char *filename, Song *list);
@@ -106,8 +107,10 @@ void update_list(Widget list, char *filename)
 	for (i=0;i<total_songs;i++) {
 		if (songlist[i].name)
 			free(songlist[i].name);
-		if (songlist[i].name)
+		if (songlist[i].filename)
 			free(songlist[i].filename);
+		songlist[i].name = NULL;
+		songlist[i].filename = NULL;
 	}
 	total_songs = 0;
 	total_songs = load_songlist(filename, songlist);
@@ -118,6 +121,7 @@ void update_list(Widget list, char *filename)
 	XmStringTable str_list = (XmStringTable) XtMalloc (total_songs * sizeof (XmString));
 
 	for (i = 0; i < total_songs; i++) {
+	    printf("Adding: %s\n", songlist[i].name);
 	    str_list[i] = XmStringCreateLocalized (songlist[i].name);
 	}
 
@@ -245,6 +249,22 @@ ListItem midiin_list  = {"midiin", "Midi Input Devices", NULL, 0, 0, NULL, NULL}
 ListItem midiout_list = {"midiout", "Midi Output Devices", NULL, 0, 0, NULL, NULL};
 
 
+char *getMidiIn()
+{
+	if (midiin_list.current >=0 && midiin_list.current < midiin_list.size) {
+		return midiin_list.strings[midiin_list.current];
+	}
+	return NULL;
+}
+
+char *getMidiOut()
+{
+	if (midiout_list.current >=0 && midiout_list.current < midiout_list.size) {
+		return midiout_list.strings[midiout_list.current];
+	}
+	return NULL;
+}
+
 void buildOptionsPanel(Widget parent)
 {
 	XmString btn_text;
@@ -274,6 +294,9 @@ void buildOptionsPanel(Widget parent)
 
 void SetIconWindow (Widget shell, Pixmap image);
 
+char *exec_dir = NULL;
+char *midibox = "midibox";
+
 int main (int argc, char **argv)
 {
 	int status = 0;
@@ -285,12 +308,27 @@ int main (int argc, char **argv)
 
 	atexit(shutdown);
 
+	if (argc>0) {
+		char *p = strdup(argv[0]);
+		if (p) {
+			exec_dir = dirname(p);
+			if (exec_dir) {
+				exec_dir = strdup(exec_dir);
+			}
+			free(p);
+		}
+	}
+
 	if (argc>1) {
 		playlist_file = argv[1];
+
+		printf("Total Songs: %u\n", total_songs);
+
 		total_songs = load_songlist(playlist_file, songlist);
 	}
 	n = total_songs;
 
+	printf("Total Songs: %u\n", total_songs);
 /*	if (n==0)
 		return 0; */
 
@@ -486,13 +524,24 @@ int load_songlist(char *filename, Song *list)
     char *ext = rindex(filename, '.');
     if (!ext)
 	    return 0;
-
-
     if (!strcasecmp(ext, ".slt")) {
 		struct _playlist_loader playlist_loader;
 		playlist_loader.pos = -1;
 		playlist_loader.songs = list;
 		ini_parse(filename, &playlist_loader, playlist_setter);
+
+		if (playlist_folder)
+			free(playlist_folder);
+		playlist_folder = NULL;
+
+		char *tmp = strdup(filename);
+		if (tmp) {
+			char *t2 = dirname(tmp);
+			if (t2)
+				playlist_folder = strdup(t2);
+			free(tmp);
+		}
+
 		return playlist_loader.pos+1;
     }
     return 0;
@@ -516,6 +565,19 @@ void proc_exit()
 	}
 }
 
+char *extract_mididev(char *option)
+{
+	char *r = strrchr(option, '[');
+	if (!r)
+		return NULL;
+	r++;
+	r = strdup(r);
+	char *p = strchr(r, ']');
+	if (p!=NULL)
+		*p = '\0';
+	return r;
+}
+
 void play_song_external(char *filename)
 {
     int wstatus;
@@ -536,7 +598,69 @@ void play_song_external(char *filename)
 	if (into != 0) {
 		char tmp[20];
 		sprintf(tmp, "%lu", into);
-		execlp("xterm","xterm", "-into", tmp ,"-T", "Hello", "-e", "./midibox", filename, NULL);
+
+		char *path = filename;
+		int free_path = 0;
+		if (playlist_folder && *playlist_folder) {
+			path = (char *)malloc(strlen(playlist_folder) + strlen(filename) + 2);
+			strcpy(path, playlist_folder);
+			strcat(path, "/");
+			strcat(path, filename);
+			free_path = 1;
+		}
+
+		char *midiin = getMidiIn();
+		char *midiout = getMidiOut();
+
+		char *midiin_a = NULL;
+		char *midiout_a = NULL;
+
+		char *mpath = exec_dir ? exec_dir : ".";
+		size_t l = strlen(mpath)+1+strlen(midibox)+1;
+		char *mbox = (char *) malloc(l);
+		strcpy(mbox, mpath);
+		strcat(mbox, "/");
+		strcat(mbox, midibox);
+		if (!mbox)
+			_exit(2);
+		printf("L: %u %u => %s\n", l, strlen(mbox), mbox);
+
+		char *args[20];
+		int ac = 0;
+		args[ac++] = "xterm";
+		args[ac++] = "-into";
+		args[ac++] = tmp;
+                args[ac++] = "-T";
+                args[ac++] = "MidiBox";
+                args[ac++] = "-e";
+		args[ac++] = mbox;
+
+		if (midiin) {
+			midiin_a = extract_mididev(midiin);
+			if (midiin_a) {
+				args[ac++] = "--in";
+				args[ac++] = midiin_a;
+			}
+		}
+
+		if (midiout) {
+			midiout_a = extract_mididev(midiout);
+			if (midiout_a) {
+				args[ac++] = "--out";
+				args[ac++] = midiout_a;
+			}
+		}
+
+		args[ac++] = path;
+		args[ac] = NULL;
+		
+		execvp("xterm", args);
+		if (free_path)
+			free(path);
+		if (midiin_a)
+			free(midiin_a);
+		if (midiout_a)
+			free(midiin_a);
 	}
         _exit(0);
     }

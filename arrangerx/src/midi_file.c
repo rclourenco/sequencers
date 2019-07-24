@@ -571,7 +571,8 @@ MidiPattern *midi_pattern_load(char *filename)
     MidiHeader mh;
 
     pat->tracks = NULL;
-    strcpy(pat->filename, filename);
+    strncpy(pat->filename, filename, PATTERN_MAXFILENAME);
+    pat->filename[PATTERN_MAXFILENAME] = '\0';
     pat->ticks_quarter = 0;
     pat->tempo = 0L;
 

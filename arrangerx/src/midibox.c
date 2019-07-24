@@ -3,19 +3,96 @@
 #include <string.h>
 #include <time.h>
 #include <signal.h>
-#include <panel.h>
+#include <termios.h>
 #include <pthread.h>
+#include <libgen.h>
+#include <getopt.h>
 #include "iniparser.h"
 #include "midi_pattern.h"
 
 #include "../../midi_lib/midi_lib.h"
 
+void set_midi_opt(char **opt_r, char *direction, char *value)
+{
+	if (opt_r == NULL)
+		return;
+	if (*opt_r != NULL)
+		return;
+
+	char *r = index(value, ';');
+
+	if (!r)
+		r = index(value, ':');
+
+	if (!r)
+		return;
+
+	int l = strlen(value)+strlen(direction)+2; /* strlen("direction") + strlen(":") + '\0' */
+
+	*opt_r = (char *)malloc(l);
+	if (!*opt_r)
+		return;
+
+	strncpy(*opt_r, value, r-value+1);
+
+	strcpy(&(*opt_r)[r-value+1], direction);
+	strcat(*opt_r, ":");
+	strcat(*opt_r, r+1);
+}
 
 typedef struct {
 	char *midiin;
 	char *midiout;
 	char *songs;
+	char *filepath;
 } MidiBoxConfig;
+
+void reset_config(MidiBoxConfig *cfg)
+{
+	cfg->midiin = NULL;
+	cfg->midiout = NULL;
+	cfg->songs = NULL;
+	cfg->filepath = NULL;
+}
+
+
+void load_config_from_args(MidiBoxConfig *cfg, int argc, char **argv)
+{
+	static struct option long_options[] = {
+		{"in", required_argument, 0, 1},
+		{"out", required_argument, 0, 2},
+		{0, 0, 0, 0}
+	};
+
+	while(1) {
+		int option_index = 0;
+		int c = getopt_long(argc, argv, "i:o:", long_options, &option_index);
+		if (c == -1)
+			break;
+		switch (c) {
+			case 1:
+				set_midi_opt(&cfg->midiin, "in", optarg);
+				break;
+			case 2:
+				set_midi_opt(&cfg->midiout, "out", optarg);
+				break;
+			default:
+				printf("Code: %u\n", c);
+		}
+	}
+
+	printf("%u %u\n", optind, argc);
+	int i;
+	for(i=0;i<argc;i++) {
+		printf("%u => %s\n", i, argv[i]);
+	}
+
+	if (optind < argc) {
+		if (cfg->filepath==NULL) {
+			cfg->filepath = argv[optind++];
+		}
+	}
+}
 
 volatile sig_atomic_t a;
 
@@ -101,13 +178,6 @@ void rewind_pattern(MidiPattern *pat)
   }
 
 }
-
-WINDOW
-	*player_win = NULL,
-	*pattern_win = NULL;
-PANEL
-	*player_panel = NULL,
-	*pattern_panel = NULL;
 
 void playing_loop(MidiPattern *pat)
 {
@@ -506,34 +576,7 @@ void apshutdown();
 
 void apshutdown()
 {
-	if (player_win != NULL)
-		delwin(player_win);
-	endwin();
 	return;
-}
-
-WINDOW *create_player_window()
-{
-	player_win = newwin(8, 40, 10, 10);
-	//box(player_win, 0 , 0);
-
-	wborder(player_win, '|', '|', '-', '-', '+', '+', '+', '+');
-	wrefresh(player_win);
-
-	player_panel = new_panel(player_win);
-	return player_win;
-}
-
-WINDOW *create_pattern_window()
-{
-	pattern_win = newwin(8, 40, 1, 1);
-	//box(player_win, 0 , 0);
-
-	wborder(pattern_win, '|', '|', '-', '-', '+', '+', '+', '+');
-	wrefresh(pattern_win);
-
-	pattern_panel = new_panel(pattern_win);
-	return pattern_win;
 }
 
 int load_config(MidiBoxConfig *cfg);
@@ -564,13 +607,19 @@ int load_and_play(char *filename)
   		printf("P %02u: %-30s\r\n", i, list[i]->filename);
   	}
 
-	printf("Press Enter to Start Playing!\n");
-  	getchar();
+	int t=0;
+	printf("Press Enter to Start Playing (q to skip)! \n");
+  	while (t!='q' && t!='\n') {
+		t = getchar();
+	}
+	
+	if (t=='q')
+		return 2;
 
   	x=0;
   	start_playing(list, totalpatterns);
   	do {
-  		char t = getchar();
+  		t = getchar();
 		if (player_on==0)
 			break;
 		switch(t) {
@@ -579,26 +628,43 @@ int load_and_play(char *filename)
 			case 'r':
 			case 'R': x=3; break;
 		}
-  	} while(1);
+  	} while(t!='q');
   	player_wait();
   	midi_panic();
-	return 1;
+	return t=='q' ? 2 : 1;
+}
+
+struct termios orig_termios;
+void disableRawMode() {
+	tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+}
+
+void enableRawMode() {
+	tcgetattr(STDIN_FILENO, &orig_termios);
+	atexit(disableRawMode);
+	struct termios raw = orig_termios;
+	raw.c_lflag &= ~(ECHO | ICANON);
+	tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
 
 int main(int argc, char **argv)
 {
-  if( argc < 2) {
-    return 1;
-  }
   char *ext = NULL;
   int error=0;
 
-  load_config(&config);
+  reset_config(&config);
+  load_config_from_args(&config, argc, argv);
 
   printf("==> %s\n", config.midiout);
   printf("==> %s\n", config.midiin);
 
   printf("==> %s\n", config.songs);
+
+  if (config.filepath==NULL) {
+	  return 1;
+  }
+
+  load_config(&config);
 
   char mididevs[200];
   strcpy(mididevs, "");
@@ -628,10 +694,9 @@ int main(int argc, char **argv)
 
 //  hide_panel(player_panel);
 
+  enableRawMode();
   midi_reader_start();
-  load_and_play(argv[1]);
-  
-  getchar();
+  load_and_play(config.filepath);
   //hide_panel(player_panel);
   midi_reader_shutdown();
 
@@ -641,6 +706,8 @@ struct _config_loader {
 	int current_section;
 	MidiBoxConfig *cfg;
 };
+
+	      
 
 int config_setter(void *data, char *key, char *value)
 {
@@ -666,39 +733,14 @@ int config_setter(void *data, char *key, char *value)
 	if (!strcmp(key, "midiout")) {
 		if (cl->cfg->midiout!=NULL)
 			return 0;
-		char *r = index(value, ';');
-		if (!r)
-			return -1;
-
-		int l = strlen(value)+5; /* strlen("out:") + 1 */
-
-		cl->cfg->midiout = (char *)malloc(l);
-		if (!cl->cfg->midiout)
-			return -2;
-
-		strncpy(cl->cfg->midiout, value, r-value+1);
-		strcpy(&cl->cfg->midiout[r-value+1], "out:");
-		strcat(cl->cfg->midiout, r+1);
-
+		set_midi_opt(&cl->cfg->midiout, "out", value);
 		return 0;
 	}
+
 	if (!strcmp(key, "midiin")) {
 		if (cl->cfg->midiin!=NULL)
 			return 0;
-		char *r = index(value, ';');
-		if (!r)
-			return -1;
-
-		int l = strlen(value)+4; /* strlen("out:") + 1 */
-
-		cl->cfg->midiin = (char *)malloc(l);
-		if (!cl->cfg->midiin)
-			return -2;
-
-		strncpy(cl->cfg->midiin, value, r-value+1);
-		strcpy(&cl->cfg->midiin[r-value+1], "in:");
-		strcat(cl->cfg->midiin, r+1);
-
+		set_midi_opt(&cl->cfg->midiin, "in", value);
 		return 0;
 	}
 
@@ -719,14 +761,20 @@ int load_config(MidiBoxConfig *cfg)
 	config_loader.current_section = 0;
 	config_loader.cfg = cfg;
 
-	cfg->midiout=NULL;
-	cfg->songs=NULL;
+	int r = ini_parse("midibox.conf", &config_loader, config_setter);
+	if (cfg->midiin) {
+		printf("Set Midi In: %s\n", cfg->midiin);
+	}
 
-	return ini_parse("midibox.conf", &config_loader, config_setter);
+	if (cfg->midiout) {
+		printf("Set Midi Out: %s\n", cfg->midiout);
+	}
+	return r;
 }
 
 struct _sequence_loader {
 	int pos;
+	char *sequence_dir;
 };
 
 int sequence_setter(void *data, char *key, char *value);
@@ -747,13 +795,34 @@ int sequence_setter(void *data, char *key, char *value)
 	if (!strcmp(key, "filename")) {
 		if (sl->pos!=totalpatterns) 
 			return 0;
-		list[totalpatterns] = midi_pattern_load(value);
+
+		if (!sl->sequence_dir)
+			return 0;
+		char *filepath = (char *) malloc(strlen(sl->sequence_dir)+strlen(value)+3);
+		if (!filepath)
+			return 0;
+
+		if (sl->sequence_dir[0]) {
+			printf("SequenceDir %s\n", sl->sequence_dir);
+			strcpy(filepath, sl->sequence_dir);
+		} else {
+			strcpy(filepath, ".");
+		}
+
+		strcat(filepath, "/");
+		strcat(filepath, value);
+
+
+		list[totalpatterns] = midi_pattern_load(filepath);
+
           	if (list[totalpatterns]) {
-            		printf("Loaded %s\r\n", value);
+            		printf("Loaded %s\r\n", filepath);
             		totalpatterns++;
           	} else {
-            		printf("Error loading %s\r\n", value);
+            		printf("Error loading %s\r\n", filepath);
           	}
+
+		free(filepath);
 
 		return 0;
 	}
@@ -810,8 +879,14 @@ int load_song(char *filename)
 	if (!strcasecmp(ext, ".seq")) {
 		struct _sequence_loader sequence_loader;
 		sequence_loader.pos = -1;
+		printf("Filename: %s\n", filename);
+		char *tmp = strdup(filename);
+		if (!tmp)
+			return 0;
+		sequence_loader.sequence_dir = dirname(tmp);
 		totalpatterns = 0;
 		ini_parse(filename, &sequence_loader, sequence_setter);
+		free(tmp);
 		return totalpatterns;
 	}
 	return 0;
