@@ -630,7 +630,7 @@ int load_and_play(char *filename)
 		return 2;
 
   	x=0;
-	printf("\x1B[2J;");
+	printf("\x1B[0;32;40m\x1B[2J");
 	draw_pattern(list, totalpatterns, 0, 0);
   	start_playing(list, totalpatterns);
   	do {
@@ -647,9 +647,9 @@ int load_and_play(char *filename)
 		
 		if (player_data.pattern != -1 ) {
 			unsigned long secs = player_data.seconds;
-			printf("\x1B[2J;");
+			printf("\x1B[2J\x1B[32m");
 			draw_pattern(list, totalpatterns, player_data.pattern, player_data.ticks);
-			printf("\rPattern %02u Time: %02u:%02u:%02u  [<ESC>: Next Pat, <SP>: Quit]", player_data.pattern, (unsigned int)(secs/3600)%24,(unsigned int) (secs/60)%60, (unsigned int)secs%60);
+			printf("\r\x1B[33mPattern %02u Time: %02u:%02u:%02u  [<ESC>: Next Pat, <SP>: Quit]", player_data.pattern, (unsigned int)(secs/3600)%24,(unsigned int) (secs/60)%60, (unsigned int)secs%60);
 			fflush(stdout);
 		}
 
