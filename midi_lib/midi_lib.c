@@ -26,7 +26,7 @@ void midi_set_output_blocking(int state)
 int midi_init_alsa(MidiDriver **mididriver_p, const char *device_in, const char *device_out);
 
 void midi_out_f_dummy(MidiDriver *md, const char *msg, size_t len) {
-/*  fprintf(stderr, "[DEBUG] Received midi msg len %u\n", len);*/
+//  fprintf(stdout, "[DEBUG] Received midi msg len %u\n", len);
 }
 
 int midi_in_f_dummy(MidiDriver *md) {
@@ -50,8 +50,12 @@ int midi_port_install(const char *midi_opts)
     return 0;
   }
 
+  printf("Midi Options %s\n", midi_opts);
   int p=0;
-  while(midi_opts[p] && midi_opts[p]!=';') p++;
+
+  while(midi_opts[p]) { 
+  	int p = 0;
+	while(midi_opts[p] && midi_opts[p]!=':') p++;
 
   if( !strncmp(midi_opts,"alsa",p) ) {
     printf("Driver is Alsa\n");
@@ -60,7 +64,7 @@ int midi_port_install(const char *midi_opts)
       driver_options = &midi_opts[p];
       p=0;
 
-      while(driver_options[p]) {
+      if(driver_options[p]) {
         while(driver_options[p] && driver_options[p]!=';') p++;
 
         if( (!strncmp(driver_options,"in:",3)) && p>3 ) {
@@ -77,13 +81,21 @@ int midi_port_install(const char *midi_opts)
 
         printf("D O: %s %d\n", driver_options, p);
 
-        if( driver_options[p] ) {
-          p++;
-          driver_options = &driver_options[p];
-          p=0;
-        }
       }
+
+      if( driver_options[p] ) {
+          p++;
+      }
+
+      driver_options = &driver_options[p];
+      p=0;
+
+      midi_opts = driver_options;
     }
+
+  }
+
+  }
 
     const char *alsa_in = NULL;
     const char *alsa_out = NULL;
@@ -95,11 +107,6 @@ int midi_port_install(const char *midi_opts)
 
     return midi_init_alsa(&midi_driver_default, alsa_in, alsa_out);
 
-  } else {
-    strncpy(drivertype, midi_opts, p);
-    drivertype[p]='\0';
-    printf("Driver Type String is %s\n", drivertype);
-  }
 
 }
 
@@ -188,7 +195,6 @@ int midiParser(MidiParser *mp,int input, MidiEvent *me)
 	me->cmd = 0;
 	return 0;
 }
-
 
 void midi_out_f_alsa(MidiDriver *md, const char *msg, size_t len) {
   if( len ) {

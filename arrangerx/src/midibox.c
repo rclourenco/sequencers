@@ -272,7 +272,7 @@ void playing_loop(MidiPattern *pat)
 
 }
 
-typedef void (*PlayingStatusCB)(void *data, int pat, unsigned long secs);
+typedef void (*PlayingStatusCB)(void *data, int pat, unsigned long secs, unsigned long ticks);
 
 volatile sig_atomic_t x = 0;
 volatile sig_atomic_t player_on = 0;
@@ -311,7 +311,7 @@ void play_sequence(MidiPattern **patlist, int n, PlayingStatusCB stcb, void *stc
   int bref = 0;
 
   if (stcb)
-	  stcb(stcb_data, pt-1, 0);
+	  stcb(stcb_data, pt-1, 0, 0);
 
   while(!done)
   {
@@ -351,9 +351,9 @@ void play_sequence(MidiPattern **patlist, int n, PlayingStatusCB stcb, void *stc
 
     //unsigned long adiff2 = (tick+1)*ticks_interval;
 
-    if( osec != secs ) {
+    if( tick != btick ) {
 	  if (stcb)
-	  	stcb(stcb_data, pt-1, secs);
+	  	stcb(stcb_data, pt-1, secs, tick);
 
       osec = secs;
     }
@@ -401,7 +401,7 @@ void play_sequence(MidiPattern **patlist, int n, PlayingStatusCB stcb, void *stc
 		o_usec_el = usec_el;
 
 		if (stcb)
-	  		stcb(stcb_data, pt-1, 0);
+	  		stcb(stcb_data, pt-1, 0, 0);
 
 	} else {
     		break;
@@ -412,22 +412,32 @@ void play_sequence(MidiPattern **patlist, int n, PlayingStatusCB stcb, void *stc
   }
 
   if (stcb)
-	stcb(stcb_data, -1, 0);
+	stcb(stcb_data, -1, 0, 0);
 }
 
 typedef struct {
 	MidiPattern **list;
 	int len;
+
+	// player status
+	unsigned long seconds;
+	int pattern;
+	unsigned long ticks;
 }PlayerData;
 
-void update_cb(void *data, int pat, unsigned long secs)
+void update_cb(void *data, int pat, unsigned long secs, unsigned long ticks)
 {
+	PlayerData *pdata = (PlayerData *)data;
+	pdata->pattern = pat;
+	pdata->seconds = secs;
+	pdata->ticks   = ticks;
+
 	if (pat!=-1) {
-		printf("\rPattern %02u Time: %02u:%02u:%02u  [<ESC>: Next Pat, <SP>: Quit]", pat, (unsigned int)(secs/3600)%24,(unsigned int) (secs/60)%60, (unsigned int)secs%60);
-		fflush(stdout);
+//		printf("\rPattern %02u Time: %02u:%02u:%02u  [<ESC>: Next Pat, <SP>: Quit]", pat, (unsigned int)(secs/3600)%24,(unsigned int) (secs/60)%60, (unsigned int)secs%60);
+//		fflush(stdout);
 		return;
 	}
-	printf("\r\nDone!\r\n");
+//	printf("\r\nDone!\r\n");
 }
 
 void *player_th_func(void *data)
@@ -448,6 +458,8 @@ void start_playing(MidiPattern **list, int len)
 {
 	player_data.list = list;
 	player_data.len = len;
+	player_data.pattern = 0;
+	player_data.seconds = 0;
         player_on = 1;
 	pthread_attr_init(&th_attr);
 	pthread_attr_setdetachstate(&th_attr, PTHREAD_CREATE_JOINABLE);
@@ -598,6 +610,7 @@ int load_song(char *filename);
 
 int load_and_play(char *filename)
 {
+	getchar();
 	int r = load_song(filename);
 	if(!r)
 		return r;
@@ -617,8 +630,32 @@ int load_and_play(char *filename)
 		return 2;
 
   	x=0;
+	printf("\x1B[2J;");
+	draw_pattern(list, totalpatterns, 0, 0);
   	start_playing(list, totalpatterns);
   	do {
+		fd_set rfds;
+		struct timeval tv;
+		int retval;
+		FD_ZERO(&rfds);
+		FD_SET(0, &rfds);
+
+		tv.tv_sec = 0;
+		tv.tv_usec = 20000;
+
+		retval = select(1, &rfds, NULL, NULL, &tv);
+		
+		if (player_data.pattern != -1 ) {
+			unsigned long secs = player_data.seconds;
+			printf("\x1B[2J;");
+			draw_pattern(list, totalpatterns, player_data.pattern, player_data.ticks);
+			printf("\rPattern %02u Time: %02u:%02u:%02u  [<ESC>: Next Pat, <SP>: Quit]", player_data.pattern, (unsigned int)(secs/3600)%24,(unsigned int) (secs/60)%60, (unsigned int)secs%60);
+			fflush(stdout);
+		}
+
+		if (retval==-1 || !retval)
+			continue;
+
   		t = getchar();
 		if (player_on==0)
 			break;
@@ -628,7 +665,7 @@ int load_and_play(char *filename)
 			case 'r':
 			case 'R': x=3; break;
 		}
-  	} while(t!='q');
+  	} while (t!='q');
   	player_wait();
   	midi_panic();
 	return t=='q' ? 2 : 1;
@@ -677,6 +714,7 @@ int main(int argc, char **argv)
   }
 
   midi_set_input_blocking(0);
+  printf("MidiDevs: %s\n", mididevs);
   midi_port_install(mididevs);
   midi_reset();
   signal(SIGTERM, terminate_handler);
