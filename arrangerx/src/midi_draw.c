@@ -167,6 +167,18 @@ void draw_pattern(MidiPattern **list, int total, int pp, unsigned long ticks)
 	int tn = 0;
 	dstatus.ntracks = 2;
 
+	printf("\nPlaying: %s [%c%c%c]\n", pat->name, pat->loop ? 'L':'\0', pat->wait ? 'W':'\0', pat->last ? 'E': '\0');
+	int i;
+	for(i=0;i<MAX_ACTIONS;i++) {
+		if (!pat->actions[i])
+			continue;
+		printf("\tAction %3d: %04X\n", i, pat->actions[i]);
+	}
+
+	if (pat->next) {
+		printf("\tNext %04X\n", pat->next);
+	}
+	
 	while (track) {
 		if (tn > dstatus.ntracks)
 			break;

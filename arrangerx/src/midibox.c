@@ -689,6 +689,8 @@ int main(int argc, char **argv)
   char *ext = NULL;
   int error=0;
 
+  memset(list, 0, sizeof(MidiPattern *)*MAXPATTERNS);
+
   reset_config(&config);
   load_config_from_args(&config, argc, argv);
 
@@ -811,8 +813,20 @@ int load_config(MidiBoxConfig *cfg)
 }
 
 struct _sequence_loader {
-	int pos;
+	int  pos;
 	char *sequence_dir;
+
+	char name[PATTERN_MAXNAME+1];
+	int  loop;
+	int  wait;
+	int  last;
+	int  default_next;
+
+	unsigned int actions[MAX_ACTIONS];
+
+	int map_count;
+	char *next_map[MAXPATTERNS];
+	int next_index[MAXPATTERNS];
 };
 
 int sequence_setter(void *data, char *key, char *value);
@@ -826,14 +840,22 @@ int sequence_setter(void *data, char *key, char *value)
 
 	if (value==NULL) {
 		sl->pos++;
-	        printf("Part name: %s\r\n", key);	
+	        printf("Part name: %s\r\n", key);
+		strcpy(sl->name, key);
+		sl->loop = 0;
+		sl->wait = 0;
+		sl->last = 0;
+		sl->default_next = 0;
+		memset(sl->actions, 0, sizeof(unsigned int)*MAX_ACTIONS);
 		return 0;
 	}
 
-	if (!strcmp(key, "filename")) {
-		if (sl->pos!=totalpatterns) 
-			return 0;
+	printf(">> KEY %s %s\n", key, value);
 
+	if (sl->pos<0) 
+		return 0;
+
+	if (!strcmp(key, "filename")) {
 		if (!sl->sequence_dir)
 			return 0;
 		char *filepath = (char *) malloc(strlen(sl->sequence_dir)+strlen(value)+3);
@@ -854,7 +876,14 @@ int sequence_setter(void *data, char *key, char *value)
 		list[totalpatterns] = midi_pattern_load(filepath);
 
           	if (list[totalpatterns]) {
+			MidiPattern *c = list[totalpatterns];
             		printf("Loaded %s\r\n", filepath);
+			memcpy(c->name, sl->name, PATTERN_MAXNAME+1);
+			c->loop = sl->loop;
+			c->wait = sl->wait;
+			c->next = sl->default_next;
+			c->last = sl->last;
+			memcpy(c->actions, sl->actions, sizeof(unsigned int)*MAX_ACTIONS);
             		totalpatterns++;
           	} else {
             		printf("Error loading %s\r\n", filepath);
@@ -865,7 +894,125 @@ int sequence_setter(void *data, char *key, char *value)
 		return 0;
 	}
 
+	if (!strcmp(key, "loop")) {
+		if (!strcmp(value, "true") || !strcmp(value,"1")) {
+			if (list[sl->pos])
+				list[sl->pos]->loop = 1;
+			sl->loop = 1;
+		}
+		return 0;
+	}
 
+	if (!strcmp(key, "wait")) {
+
+		if (!strcmp(value, "true") || !strcmp(value,"1")) {
+			if (list[sl->pos])
+				list[sl->pos]->wait = 1;
+			sl->wait = 1;
+		}
+		return 0;
+	}
+
+	if (!strcmp(key, "last")) {
+
+		if (!strcmp(value, "true") || !strcmp(value,"1")) {
+			if (list[sl->pos])
+				list[sl->pos]->last = 1;
+			sl->last = 1;
+		}
+		return 0;
+	}
+
+	if (!strcmp(key, "next")) {
+		int i = 0;
+		int f = -1;
+		for(i=0;i<sl->map_count;i++) {
+			if (strcmp(sl->next_map[i], value))
+			       continue;
+			f = i+1;
+			break;	
+		}
+
+		if (f==-1) {
+			char *t = strdup(value);
+			if (!t)
+				return -1;
+			
+			sl->next_map[sl->map_count++] = t;
+			f = sl->map_count;
+		}
+
+		if (list[sl->pos])
+			list[sl->pos]->next = f;
+
+		sl->default_next = f;
+		return 0;
+	}
+
+	if (!strncmp(key, "action:", 7)) {
+		int a = atoi(key+7);
+		printf("Action: %d\n", a);
+		if (a >= MAX_ACTIONS)
+			return 0;
+
+		if (sl->actions[a])
+			return 0;
+	
+		if (list[sl->pos] && list[sl->pos]->actions[a])
+			return 0;
+
+		sl->actions[a] = 0x1000;
+	
+		if (list[sl->pos])
+		       	list[sl->pos]->actions[a] = 0x1000;
+
+		if (!strncmp(value, "next:", 5)) {
+			int i = 0;
+			int f = -1;
+			for(i=0;i<sl->map_count;i++) {
+				if (strcmp(sl->next_map[i], value+5))
+				       continue;
+				f = i+1;
+				break;	
+			}
+
+			if (f==-1) {
+				char *t = strdup(value+5);
+				if (!t)
+					return -1;
+			
+				sl->next_map[sl->map_count++] = t;
+				f = sl->map_count;
+			}
+
+			printf("<<<< Action %d, %d\n", a, f-1);
+			if (list[sl->pos])
+				list[sl->pos]->actions[a] |= f;
+
+			sl->actions[a] |= f;
+			return 0;
+		}
+
+		if (!strncmp(value, "loop:", 5)) {
+			int lflags = 0;
+
+			if (!strcmp(value+5, "on")) {
+				lflags = 1;
+			}
+			else if (!strcmp(value+5, "off")) {
+				lflags = 2;
+			}
+			else if (!strcmp(value+5, "toggle")) {
+				lflags = 3;
+			}
+
+			if (list[sl->pos])
+				list[sl->pos]->actions[a] |= lflags << 8;
+
+			sl->actions[a] |= lflags << 8; 
+		}
+
+	}
 	return 0;
 }
 
@@ -915,16 +1062,63 @@ int load_song(char *filename)
 	}
 
 	if (!strcasecmp(ext, ".seq")) {
-		struct _sequence_loader sequence_loader;
-		sequence_loader.pos = -1;
+		struct _sequence_loader *sequence_loader = malloc(sizeof(struct _sequence_loader));
+		memset(sequence_loader, 0, sizeof(struct _sequence_loader));
+		if (!sequence_loader)
+			return 0;
+
+		sequence_loader->pos = -1;
 		printf("Filename: %s\n", filename);
 		char *tmp = strdup(filename);
 		if (!tmp)
 			return 0;
-		sequence_loader.sequence_dir = dirname(tmp);
+
+		sequence_loader->sequence_dir = dirname(tmp);
 		totalpatterns = 0;
-		ini_parse(filename, &sequence_loader, sequence_setter);
+		ini_parse(filename, sequence_loader, sequence_setter);
 		free(tmp);
+
+		int i,j;
+
+		for(i=0; i<sequence_loader->map_count; i++) {
+			if (!sequence_loader->next_map[i])
+				continue;
+			for(j=0;j<totalpatterns;j++) {
+				if(strcmp(list[j]->name, sequence_loader->next_map[i]))
+						continue;
+				sequence_loader->next_index[i] = j + 1;
+				break;
+			}	
+
+			free(sequence_loader->next_map[i]);
+		}
+
+		for (j=0;j<totalpatterns;j++) {
+			MidiPattern *p = list[j];
+			for (i=0;i<MAX_ACTIONS;i++) {
+				if (p->actions[i]&0xFF) {
+					int v = (p->actions[i]&0xFF) - 1;
+					int vm = 0;
+					if (v < sequence_loader->map_count) {
+						vm = sequence_loader->next_index[v];
+					}
+
+					p->actions[i] = (p->actions[i] & 0xFF00) | vm;
+				}
+			}
+
+			if (p->next) {
+				int v = p->next - 1;
+				int vm = 0;
+				if (v < sequence_loader->map_count) {
+					vm = sequence_loader->next_index[v];
+				}
+
+				p->next = vm;
+			}
+		}
+
+		free(sequence_loader);
 		return totalpatterns;
 	}
 	return 0;

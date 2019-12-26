@@ -5,9 +5,16 @@ songname = example
 
 [intro]
 filename=song000/intro.mid
+loop=true
+wait=true
+action:0=next:part 1
+action:1=next:part 2
+action:2=loop:on
+action:3=loop:off
 
 [part 1]
 filename=song000/part1.mid
+next=part 2
 
 [part 2]
 filename=song000/part2.mid
@@ -20,3 +27,4 @@ filename=song000/part4.mid
 
 [coda]
 filename=song000/end.mid
+last=true

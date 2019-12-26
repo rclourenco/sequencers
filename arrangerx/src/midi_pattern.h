@@ -62,7 +62,11 @@ typedef struct _MidiTrackNode {
 } MidiTrackNode;
 
 #define PATTERN_MAXFILENAME 255
+#define PATTERN_MAXNAME     255
+#define MAX_ACTIONS         24
+#define LOOP_ACTION_MASK    0x300
 typedef struct _MidiPattern {
+  char name[PATTERN_MAXNAME+1];
   char filename[PATTERN_MAXFILENAME+1];
   MidiTrackNode *tracks;
   unsigned int ticks_quarter;
@@ -71,6 +75,11 @@ typedef struct _MidiPattern {
 //  unsigned char meter_a;
 //  unsigned char meter_b;
   /*TODO*/
+  int loop;
+  int wait;
+  int last;
+  int next;
+  unsigned int actions[MAX_ACTIONS];
 } MidiPattern;
 
 typedef struct {
