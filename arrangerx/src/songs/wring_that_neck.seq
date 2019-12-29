@@ -1,0 +1,10 @@
+# example song
+# 
+
+songname = Wring That Neck
+
+[main]
+filename=wtn/wring_that_neck.mid
+loop=true
+wait=true
+

@@ -14,7 +14,8 @@ action:3=loop:off
 
 [part 1]
 filename=song000/part1.mid
-next=part 2
+next=part 3
+action:0=next:part 2
 
 [part 2]
 filename=song000/part2.mid

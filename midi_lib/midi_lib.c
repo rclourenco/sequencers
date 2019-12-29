@@ -157,7 +157,7 @@ int midiParser(MidiParser *mp,int input, MidiEvent *me)
 				 mp->st = 1;
 			}
 			else{
-				int pre = mp->scmd & 0xF;
+				int pre = mp->scmd & 0xF0;
 				int fl = mp->scmd;
 				int one = 
 					pre == 0xC0 ||

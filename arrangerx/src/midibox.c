@@ -45,6 +45,8 @@ typedef struct {
 	char *midiout;
 	char *songs;
 	char *filepath;
+
+	int cmd_channel;
 } MidiBoxConfig;
 
 void reset_config(MidiBoxConfig *cfg)
@@ -53,6 +55,7 @@ void reset_config(MidiBoxConfig *cfg)
 	cfg->midiout = NULL;
 	cfg->songs = NULL;
 	cfg->filepath = NULL;
+	cfg->cmd_channel = 0;
 }
 
 
@@ -150,7 +153,6 @@ int play_pattern(MidiPattern *pat, unsigned long tick)
   while(current) {
     i++;
     while(current->playing && current->playing->time <= tick) {
-/*      printf("Track %d Fire Midi Events @ %lu\n", i, tick);*/
       if(current->playing->type == meMeta)
         meta_midi_event(current->playing, pat); /*Sequencer Meta Event*/
       else
@@ -277,142 +279,185 @@ typedef void (*PlayingStatusCB)(void *data, int pat, unsigned long secs, unsigne
 volatile sig_atomic_t x = 0;
 volatile sig_atomic_t player_on = 0;
 
+int nextPattern(MidiPattern **patlist, int current, int action)
+{
+	if (current<0)
+		return 0;
+
+	int default_next = current + 1;
+	MidiPattern *pat = patlist[current];
+	if (pat->last)
+		return -1;
+	if (pat->next)
+		default_next = pat->next - 1;
+
+	if (action < 10)
+		return default_next;
+
+	action -= 10;
+
+	if (action<MAX_ACTIONS) {
+		int next = pat->actions[action] & 0xFF;
+		if (next) 
+			return next - 1;
+	}
+
+	return default_next;
+}
+
+struct player_status {
+	int loop;
+	int pattern;
+};
+
 void play_sequence(MidiPattern **patlist, int n, PlayingStatusCB stcb, void *stcb_data)
 {
 
-  if (!n)
-	  return;
+  	if (!n)
+		 return;
 
-  int pt = 0;
-  MidiPattern *pat = patlist[pt++];
-  rewind_pattern(pat);
+	struct player_status plst;
+	plst.loop = 0;
+	plst.pattern = 0;
 
-  if(pat->ticks_quarter == 0) {
-    return;
-  }
+	MidiPattern *pat = patlist[plst.pattern];
+	rewind_pattern(pat);
+
+	if(pat->ticks_quarter == 0) {
+		return;
+	}
  
-  unsigned long quarter_interval = 500000;
-  if(pat->tempo)
-    quarter_interval = pat->tempo;
-  unsigned long ticks_interval = quarter_interval/pat->ticks_quarter;
+	unsigned long quarter_interval = 500000;
+	if (pat->tempo)
+    		quarter_interval = pat->tempo;
+  	unsigned long ticks_interval = quarter_interval/pat->ticks_quarter;
 
-  struct timespec tp;
-  unsigned long usec_el=0, o_usec_el=0,adiff=0, o_adiff=0, m_adiff=0;
+  	struct timespec tp;
+  	unsigned long usec_el=0, o_usec_el=0, adiff=0;
 
-  clock_gettime(CLOCK_REALTIME, &tp);
-  o_usec_el = tp.tv_nsec/1000 + (tp.tv_sec%1000) * 1000000;
+	unsigned long i;
+	int done = 0;
+	unsigned long otick = 0;
+	unsigned long btick = 0;
+ 	int first = 1;
+ 	int bref = 0;
 
-  unsigned long i;
-  unsigned long osec = 10000;
-  int done = 0;
-  unsigned long otick = 0, m_otick=0;
-  unsigned long btick = 0;
-  int first = 1;
-  int bref = 0;
+	int wait = 1;
+	plst.loop = pat->loop;
 
-  if (stcb)
-	  stcb(stcb_data, pt-1, 0, 0);
+ 	if (stcb)
+		stcb(stcb_data, plst.pattern, 0, 0);
 
-  while(!done)
-  {
-    clock_gettime(CLOCK_REALTIME, &tp);
-    usec_el = tp.tv_nsec/1000 + (tp.tv_sec%1000) * 1000000;
-    if (first) {
-	    o_usec_el = usec_el;
-	    adiff = 0;
-	    first = 0;
-    }
-    else {
-    	if(usec_el < o_usec_el)
-      		adiff = abs(1000000000+usec_el - o_usec_el);
-    	else
-      		adiff = abs(usec_el - o_usec_el);
-    }
+	while(!done)
+	{
+		if (wait && pat->wait) {
+			wait = 0;
+			while(!x) {
+				usleep(500);
+			}
+			first = 1;
+		}
+		clock_gettime(CLOCK_REALTIME, &tp);
+		usec_el = tp.tv_nsec/1000 + (tp.tv_sec%1000) * 1000000;
+		if (first) {
+	    		o_usec_el = usec_el;
+	    		adiff = 0;
+	    		first = 0;
+			otick = 0;
+			btick = 0;
+			bref=0;
+		}
+ 		else {
+			if(usec_el < o_usec_el)
+      				adiff = abs(1000000000+usec_el - o_usec_el);
+    			else
+				adiff = abs(usec_el - o_usec_el);
+    		}
 
-    unsigned long tick = adiff/ticks_interval+btick;
-    unsigned long adiff_r = (tick-btick) * ticks_interval;
+ 		unsigned long tick = adiff/ticks_interval+btick;
+		unsigned long adiff_r = (tick-btick) * ticks_interval;
 
-    unsigned long adiff2 = (tick+1)*ticks_interval;
+		unsigned long adiff2 = (tick+1)*ticks_interval;
 
-    done = play_pattern(pat,tick);
+		done = play_pattern(pat,tick);
 
-    unsigned long secs = (adiff+bref)/1000000;
+		unsigned long secs = (adiff+bref)/1000000;
 
-    if (pat->ticks_quarter==0)
-	    break;
-    if(pat->tempo && pat->tempo != quarter_interval) {
-      quarter_interval = pat->tempo;
-      ticks_interval = quarter_interval/pat->ticks_quarter;
-      // rebase
-      o_usec_el = usec_el;
-      btick = tick;
-      bref += adiff;
-    }
+		if (pat->ticks_quarter==0)
+			break;
+		if (pat->tempo && pat->tempo != quarter_interval) {
+			quarter_interval = pat->tempo;
+ 			ticks_interval = quarter_interval/pat->ticks_quarter;
+			// rebase
+			o_usec_el = usec_el;
+			btick = tick;
+			bref += adiff;
+    		}
 
     //unsigned long adiff2 = (tick+1)*ticks_interval;
 
-    if( tick != btick ) {
-	  if (stcb)
-	  	stcb(stcb_data, pt-1, secs, tick);
+		if ( tick != btick ) {
+	  		if (stcb)
+	  			stcb(stcb_data, plst.pattern, secs, tick);
+		}
 
-      osec = secs;
-    }
+		if (x==2) {
+	    		break;
+    		}
 
-    if (x==2) {
-	    break;
-    }
+		unsigned long wtime = ticks_interval-(adiff-adiff_r);
+		if (wtime>0 && wtime <= ticks_interval)
+			usleep(wtime);
 
-    unsigned long wtime = ticks_interval-(adiff-adiff_r);
-    if (wtime>0 && wtime <= ticks_interval)
-	    usleep(wtime);
+    		otick = tick;
 
-  /*  if (adiff2 > adiff) {
-    	usleep(adiff2-adiff);
-    }
-    */
+		if (!done)
+			continue;
 
-   if (adiff-o_adiff > m_adiff)
-	   m_adiff = adiff-o_adiff;
+		if (x==1 || x==2)
+			break;
 
-   if (tick - otick > m_otick)
-	   m_otick = tick - otick;
+		if (x==21)
+			plst.loop = !plst.loop;
 
-    otick = tick;
-    o_adiff = adiff;
-
-    if (done) {
-	if (x==1 || x==2)
-		break;
-	if (pt<n) {
 		done=0;
-		if (x!=3)
-			pat=patlist[pt++];
-		else
+		if (x!=3 && !plst.loop) {
+			int next = nextPattern(patlist, plst.pattern, x);
+			if (next < 0 || next >= n) {
+				x=0;
+				while (!x) {
+					usleep(500);
+				}
+				if (x==1 || x==2)
+					break;
+				wait = 0;
+				first = 1;
+				next = 0;
+			}
+
+			pat=patlist[next];
+			plst.pattern = next;
+			plst.loop = pat->loop;
+		}
+
+		if (x>=10 || x==3)
 			x=0;
 		rewind_pattern(pat);
 		if(pat->tempo)
-                   quarter_interval = pat->tempo;
+        		quarter_interval = pat->tempo;
 		if (pat->ticks_quarter==0)
 			break;
 		ticks_interval = quarter_interval/pat->ticks_quarter;
 		otick = 0;
-	       	m_otick=0;
-                btick = 0;
+        	btick = 0;
 		o_usec_el = usec_el;
 
 		if (stcb)
-	  		stcb(stcb_data, pt-1, 0, 0);
-
-	} else {
-    		break;
+	 		stcb(stcb_data, plst.pattern, 0, 0);
 	}
-    }
 
-
-  }
-
-  if (stcb)
-	stcb(stcb_data, -1, 0, 0);
+  	if (stcb)
+		stcb(stcb_data, -1, 0, 0);
 }
 
 typedef struct {
@@ -476,6 +521,7 @@ volatile sig_atomic_t reader_on = 0;
 
 void *midireader_th_func(void *data)
 {
+	MidiBoxConfig *cfg = (MidiBoxConfig *)data;
 	MidiParser mp;
 	MidiEvent  me;
 	midiParserInit(&mp);
@@ -486,20 +532,33 @@ void *midireader_th_func(void *data)
 		if (input >= 0) {
 			unsigned char msg = input;
 			if (midiParser(&mp, input, &me)) {
-				switch(me.cmd) {
-					case 0x82:
-					case 0x92:
-					case 0xA2:
-					case 0xB2:
-					case 0xE2:
+				int cmd = me.cmd;
+				if (cmd < 0xF0)
+					cmd &= 0xF0;
+				int channel = me.cmd & 0xF;
+				int y = channel == cfg->cmd_channel;
+
+				switch(cmd) {
+					case 0x80:
+					case 0x90:
+					case 0xA0:
+					case 0xB0:
+					case 0xE0:
+						if (cmd==0xB0 && me.p1==16 && y) {
+							x = me.p2 + 10;
+						}
+
 						msg = me.cmd;midi_out(&msg,1);
 						msg = me.p1; midi_out(&msg,1);
 						msg = me.p2; midi_out(&msg,1);
 						break;
-					case 0xC2:
-					case 0xD2:
+					case 0xC0:
+					case 0xD0:
 						msg = me.cmd;midi_out(&msg,1);
 						msg = me.p1; midi_out(&msg,1);
+						break;
+					case 0xF3:
+						x = me.p1 + 10;
 						break;
 					case 0xFA: x = 3; break;
 					case 0xFB: x = 2; break;
@@ -519,12 +578,12 @@ void *midireader_th_func(void *data)
 }
 
 pthread_t reader_th;
-void midi_reader_start()
+void midi_reader_start(MidiBoxConfig *cfg)
 {
 	reader_on = 1;
 	pthread_attr_init(&th_attr);
 	pthread_attr_setdetachstate(&th_attr, PTHREAD_CREATE_JOINABLE);
-        pthread_create(&reader_th, &th_attr, midireader_th_func, NULL);
+        pthread_create(&reader_th, &th_attr, midireader_th_func, cfg);
 	pthread_attr_destroy(&th_attr);
 }
 
@@ -630,7 +689,7 @@ int load_and_play(char *filename)
 		return 2;
 
   	x=0;
-	printf("\x1B[0;32;40m\x1B[2J");
+	printf("\x1B[0;32;40m\x1B[2J\x1B[H");
 	draw_pattern(list, totalpatterns, 0, 0);
   	start_playing(list, totalpatterns);
   	do {
@@ -647,7 +706,7 @@ int load_and_play(char *filename)
 		
 		if (player_data.pattern != -1 ) {
 			unsigned long secs = player_data.seconds;
-			printf("\x1B[2J\x1B[32m");
+			printf("\x1B[32m\x1B[H");
 			draw_pattern(list, totalpatterns, player_data.pattern, player_data.ticks);
 			printf("\r\x1B[33mPattern %02u Time: %02u:%02u:%02u  [<ESC>: Next Pat, <SP>: Quit]", player_data.pattern, (unsigned int)(secs/3600)%24,(unsigned int) (secs/60)%60, (unsigned int)secs%60);
 			fflush(stdout);
@@ -735,7 +794,7 @@ int main(int argc, char **argv)
 //  hide_panel(player_panel);
 
   enableRawMode();
-  midi_reader_start();
+  midi_reader_start(&config);
   load_and_play(config.filepath);
   //hide_panel(player_panel);
   midi_reader_shutdown();
@@ -792,6 +851,9 @@ int config_setter(void *data, char *key, char *value)
 		return 0;
 	}
 
+	if (!strcmp(key, "midi_cmd_channel")) {
+		cl->cfg->cmd_channel = atoi(value);
+	}
 	return 0;
 }
 

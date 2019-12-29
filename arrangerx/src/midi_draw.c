@@ -154,11 +154,21 @@ void draw_pattern(MidiPattern **list, int total, int pp, unsigned long ticks)
 	if (total == 0)
 		return;
 
+
+	int finished = 0;
+	if (pp == -1) {
+		finished = 1;
+	      // pp = dstatus.lpattern;	
+	}
+	
+	// dstatus.lpattern = pp;
+
 	if (pp<0 || pp>=total)
 		pp = total - 1;
 
 	int reset = 0;
 	if (pp!=dstatus.lpattern) {
+		printf("\x1B[2J");
 		reset = 1;
 	}
 
@@ -167,7 +177,11 @@ void draw_pattern(MidiPattern **list, int total, int pp, unsigned long ticks)
 	int tn = 0;
 	dstatus.ntracks = 2;
 
-	printf("\nPlaying: %s [%c%c%c]\n", pat->name, pat->loop ? 'L':'\0', pat->wait ? 'W':'\0', pat->last ? 'E': '\0');
+	if (!finished) 
+		printf("\nPlaying: %s [%c%c%c]\n", pat->name, pat->loop ? 'L':'\0', pat->wait ? 'W':'\0', pat->last ? 'E': '\0');
+	else {
+		printf("\nDone!\n");
+	}
 	int i;
 	for(i=0;i<MAX_ACTIONS;i++) {
 		if (!pat->actions[i])
